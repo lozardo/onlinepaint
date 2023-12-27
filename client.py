@@ -15,7 +15,7 @@ from pygame_widgets.button import Button
 class WhiteboardApp:
     def __init__(self, width, height):
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect(("localhost", 5555))
+        self.client_socket.connect(("127.0.0.1", 5555))
         pygame.init()
 
         self.width = width
@@ -78,9 +78,10 @@ class WhiteboardApp:
     def change_color(self, args):
         index = args
         self.line_color_index = index
-        self.draw_color = self.available_colors[self.line_color_index][0]
-        self.send_action("color", self.draw_color)
-        print(self.draw_color)
+        if self.draw_color != self.available_colors[self.line_color_index][0]:
+            self.draw_color = self.available_colors[self.line_color_index][0]
+            self.send_action("color", self.draw_color)
+            print(self.draw_color)
 
     def save_picture(self):
         file_path = filedialog.asksaveasfilename(defaultextension=".png",
@@ -142,13 +143,19 @@ class WhiteboardApp:
                 elif event.type == pygame.MOUSEBUTTONUP:
                     self.drawing = False
                     self.points = []
-                    self.send_action("line", self.points)
+
                 elif event.type == pygame.MOUSEMOTION:
                     if self.drawing and event.pos[1] > self.toolbar_height:
-                        self.points.append(event.pos)
+                        if len(self.points) > 1:
+                            self.points = [self.points[-1], event.pos]
+                        else:
+                            self.points = [event.pos]
+
 
                 # Handle slider events
-                self.line_width = int(self.width_slider.getValue())
+                if self.line_width != int(self.width_slider.getValue()):
+                    self.line_width = int(self.width_slider.getValue())
+                    self.send_action("width", int(self.width_slider.getValue()))
 
                 # Handle button events
                 self.save_button.listen(event)
@@ -157,6 +164,8 @@ class WhiteboardApp:
             self.draw_bottom_toolbar()
 
             if len(self.points) > 0:
+                self.send_action("draw", self.points)
+                print(self.points)
                 for p in self.points:
                     pygame.draw.circle(self.screen, self.draw_color, p, self.line_width * 2)
 
