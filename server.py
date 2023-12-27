@@ -9,11 +9,11 @@ user_colors = {}
 
 def handle_client(client_socket, addr):
     while True:
-        print(addr)
+
         try:
             data = client_socket.recv(1024)
             message = pickle.loads(data)
-            print(message)
+            print(f"{addr}:{message}")
             message_type = message[0]
 
             if message_type == "join":
@@ -21,7 +21,7 @@ def handle_client(client_socket, addr):
                 user_colors[addr] = (0, 0, 0)  # Initial color: black
             elif message_type == "color":
                 user_colors[addr] = message[1]
-            elif message_type == "drawing":
+            elif message_type == "draw":
                 # Broadcast drawing updates to other clients
                 color = user_colors[addr]
                 broadcast_message = {"type": "drawing", "data": {"points": message["data"]["points"], "color": color}}
@@ -41,7 +41,7 @@ def handle_client(client_socket, addr):
 
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("0.0.0.0", 5555))
+    server.bind(("127.0.0.1", 5555))
     server.listen(5)
     print("Server listening on port 5555")
 
