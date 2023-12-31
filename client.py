@@ -1,6 +1,7 @@
 import os
 import pickle
 import socket
+import threading
 from asyncio import events
 from tkinter import filedialog  # for saving image
 
@@ -16,6 +17,7 @@ class WhiteboardApp:
     def __init__(self, width, height):
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(("127.0.0.1", 5555))
+
         pygame.init()
 
         self.width = width
@@ -27,6 +29,17 @@ class WhiteboardApp:
         self.clock = pygame.time.Clock()
 
         self.setup()
+
+    def receive_messages(self):
+        try:
+            print("a")
+            data = self.client_socket.recv(1024)
+            print("b")
+            if data:
+                message = pickle.loads(data)
+                print(f"Received message from server: {message}")
+        except Exception as e:
+            print(f"Error receiving data from server: {e}")
 
     def setup(self):
         self.line_color_index = 0
@@ -119,6 +132,15 @@ class WhiteboardApp:
         except socket.error as e:
             print(f"Error sending data to server: {e}")
 
+    def draw(self, points, draw_color, line_width, last_circle_position):
+        for p in points:
+            pygame.draw.circle(self.screen, draw_color, p, line_width * 2)
+
+        if last_circle_position is not None:
+            pygame.draw.line(self.screen, draw_color,self.last_circle_position, points[-1],
+                             line_width * 5)
+
+
     def run(self):
         self.screen.fill((255, 255, 255))  # White background
         self.send_action("join", '')
@@ -166,17 +188,13 @@ class WhiteboardApp:
             if len(self.points) > 0:
                 self.send_action("draw", self.points)
                 print(self.points)
-                for p in self.points:
-                    pygame.draw.circle(self.screen, self.draw_color, p, self.line_width * 2)
-
-                if self.drawing and len(self.points) > 0:
-                    if self.last_circle_position is not None:
-                        pygame.draw.line(self.screen, self.draw_color, self.last_circle_position, self.points[-1],
-                                         self.line_width * 5)
-                    self.last_circle_position = self.points[-1]
+                self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
+                self.last_circle_position = self.points[-1]
 
             if not self.drawing:
                 self.last_circle_position = None
+
+            threading.Thread(target=self.receive_messages()).start()
 
             pygame.display.flip()
             self.clock.tick(60)
