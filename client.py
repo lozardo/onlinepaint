@@ -1,17 +1,16 @@
-import os
+
 import pickle
 import socket
 import threading
-from asyncio import events
 from tkinter import filedialog  # for saving image
 
 import pygame
 import sys
 
 import pygame_widgets
-from pygame_widgets import slider, button
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
+
 
 class WhiteboardApp:
     def __init__(self, width, height):
@@ -31,15 +30,19 @@ class WhiteboardApp:
         self.setup()
 
     def receive_messages(self):
-        try:
-            print("a")
-            data = self.client_socket.recv(1024)
+        self.client_socket.settimeout(0.1)
+        while True:
             print("b")
-            if data:
-                message = pickle.loads(data)
-                print(f"Received message from server: {message}")
-        except Exception as e:
-            print(f"Error receiving data from server: {e}")
+            try:
+                data = self.client_socket.recv(1024)
+                print("a")
+                if data:
+                    message = pickle.loads(data)
+                    if message[0] == 'drawing':
+                        self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
+                    print(f"Received message from server: {message}")
+            except Exception as e:
+                print(f"Error receiving data from server: {e}")
 
     def setup(self):
         self.line_color_index = 0
@@ -137,13 +140,14 @@ class WhiteboardApp:
             pygame.draw.circle(self.screen, draw_color, p, line_width * 2)
 
         if last_circle_position is not None:
-            pygame.draw.line(self.screen, draw_color,self.last_circle_position, points[-1],
+            pygame.draw.line(self.screen, draw_color,last_circle_position, points[-1],
                              line_width * 5)
 
 
     def run(self):
         self.screen.fill((255, 255, 255))  # White background
         self.send_action("join", '')
+        threading.Thread(target=self.receive_messages).start()
         while True:
             events = pygame.event.get()
             pygame_widgets.update(events)
@@ -186,15 +190,16 @@ class WhiteboardApp:
             self.draw_bottom_toolbar()
 
             if len(self.points) > 0:
-                self.send_action("draw", self.points)
+
+                self.send_action("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
                 print(self.points)
-                self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
+                #self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
                 self.last_circle_position = self.points[-1]
 
             if not self.drawing:
                 self.last_circle_position = None
 
-            threading.Thread(target=self.receive_messages()).start()
+
 
             pygame.display.flip()
             self.clock.tick(60)
