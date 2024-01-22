@@ -21,33 +21,40 @@ class ClientApp(WhiteboardApp):
         self.client_socket.connect(server_address)
         self.initialize(True)
 
+
+    def receive_image(self):
+        # Receive the image size from the server
+        image_size_data = self.client_socket.recv(4)
+        image_size = int.from_bytes(image_size_data, byteorder="big")
+        # Receive the image data from the server
+        image_data = self.client_socket.recv(image_size)
+
+        return image_data
+
+
     def receive_messages(self):
-        self.client_socket.settimeout(0.1)
+        getting_whiteboard_state = True
+        image = self.receive_image()
+
+        self.initialize_whiteboard_with_image(image)
+        print(f"Received message from server: {image}")
+
+        data = self.client_socket.recv(1024)
         while True:
-            #try:
-            # Receive the size of the incoming data
-            size_data = self.client_socket.recv(4)
-            if not size_data:
-                break
-            data_size = struct.unpack("!I", size_data)[0]
-
-            # Receive the actual data
-            data = b""
-            while len(data) < data_size:
-                packet = self.client_socket.recv(data_size - len(data))
-                if not packet:
-                    break
-                data += packet
-
-            message = pickle.loads(data)
-            message_type = message[0]
-
-            if message_type == 'drawing':
-                self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
-            elif message_type == 'initial_state':
-                self.initialize_whiteboard_with_image(message[1])
-
+            print("b")
+            if data:
+                message = pickle.loads(data)
                 print(f"Received message from server: {message}")
+            try:
+                data = self.client_socket.recv(1024)
+                print("a")
+                if data:
+                    message = pickle.loads(data)
+                    if message[0] == 'drawing':
+                        self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
+                    print(f"Received message from server: {message}")
+            except Exception as e:
+                print(f"Error receiving data from server: {e}")
 
             #except Exception as e:
             #    print(f"Error receiving data from server: {e}")
