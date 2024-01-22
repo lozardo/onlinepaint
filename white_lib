@@ -75,6 +75,8 @@ class WhiteboardApp:
                                   100, 20, text='Save', fontSize=15, margin=20, inactiveColour=(255, 255, 255),
                                   colour=(100, 100, 100), onClick=self.save_picture)
 
+        pygame.draw.circle(self.screen, (255,255,255), (600,500), 1000)
+
     def change_color(self, args):
         index = args
         self.line_color_index = index
@@ -97,8 +99,8 @@ class WhiteboardApp:
 
 
     def save_picture_path(self, file_path):
-        capture_rect = pygame.Rect(0, self.toolbar_height, self.width,
-                                   self.height - self.toolbar_height - self.bottom_toolbar_height)
+        capture_rect = pygame.Rect(0, 0, self.width,
+                                   self.height)
         captured_image = self.screen.subsurface(capture_rect)
         pygame.image.save(captured_image, file_path)
 
