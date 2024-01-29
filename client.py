@@ -1,7 +1,8 @@
 import os
 import socket
 import struct
-
+import tkinter as tk
+from tkinter import simpledialog
 import pygame_widgets
 
 from white_lib import WhiteboardApp
@@ -9,12 +10,17 @@ import pickle
 import pygame
 import sys
 import threading
+import pygame_textinput
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
 
 
 class ClientApp(WhiteboardApp):
     def __init__(self):
+        self.whiteboard_id = get_id()
+        # Initialize pygame after obtaining the ID
+        pygame.init()
+
         # Connect to the server
         server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -101,7 +107,7 @@ class ClientApp(WhiteboardApp):
 
     def run(self):
         self.screen.fill((255, 255, 255))  # White background
-        self.send_action("join", '')
+        self.send_action("join", self.whiteboard_id)
         threading.Thread(target=self.receive_messages).start()
         while True:
             events = pygame.event.get()
@@ -155,6 +161,14 @@ class ClientApp(WhiteboardApp):
             pygame.display.flip()
             self.clock.tick(60)
 
+
+def get_id():
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+
+    # Create a simple dialog to get the ID
+    id = simpledialog.askstring("Whiteboard ID", "Enter the whiteboard ID:")
+    return id
 
 if __name__ == "__main__":
     app = ClientApp()
