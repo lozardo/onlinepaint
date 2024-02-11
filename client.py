@@ -10,23 +10,30 @@ import pickle
 import pygame
 import sys
 import threading
-import pygame_textinput
+#import pygame_textinput
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
 
 
 class ClientApp(WhiteboardApp):
     def __init__(self):
-        self.whiteboard_id = get_id()
-        # Initialize pygame after obtaining the ID
+        # Initialize pygame
         pygame.init()
-
+        self.username = ''
+        self.whiteboard_id = ''
         # Connect to the server
         server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
+
+        # Get credentials from the user
+        while not self.get_credentials():
+            pass
+
+        # Initialize the whiteboard
         self.initialize(True)
 
+        self.run()
 
     def receive_image(self):
         # Receive the image size from the server
@@ -36,7 +43,6 @@ class ClientApp(WhiteboardApp):
         image_data = self.client_socket.recv(image_size)
 
         return image_data
-
 
     def receive_messages(self):
         getting_whiteboard_state = True
@@ -61,9 +67,6 @@ class ClientApp(WhiteboardApp):
                     print(f"Received message from server: {message}")
             except Exception as e:
                 print(f"Error receiving data from server: {e}")
-
-            #except Exception as e:
-            #    print(f"Error receiving data from server: {e}")
 
     def initialize_whiteboard_with_image(self, image_data):
         # Create a temporary file to save the received whiteboard image
@@ -107,6 +110,7 @@ class ClientApp(WhiteboardApp):
 
     def run(self):
         self.screen.fill((255, 255, 255))  # White background
+        self.get_id()
         self.send_action("join", self.whiteboard_id)
         threading.Thread(target=self.receive_messages).start()
         while True:
@@ -161,15 +165,66 @@ class ClientApp(WhiteboardApp):
             pygame.display.flip()
             self.clock.tick(60)
 
+    def get_credentials(self):
+        # Get credentials from the user and send them to the server
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        self.return_input = False
+        # Create a login dialog to get username and password
+        dialog = tk.Toplevel(root)
+        dialog.title("Login")
+        tk.Label(dialog, text="Username:").grid(row=0, column=0)
+        tk.Label(dialog, text="Password:").grid(row=1, column=0)
 
-def get_id():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
+        username_entry = tk.Entry(dialog)
+        password_entry = tk.Entry(dialog, show="*")
+        username_entry.grid(row=0, column=1)
+        password_entry.grid(row=1, column=1)
 
-    # Create a simple dialog to get the ID
-    id = simpledialog.askstring("Whiteboard ID", "Enter the whiteboard ID:")
-    return id
+        def login():
+            username = username_entry.get()
+            password = password_entry.get()
+            credentials = (username, password)
+            dialog.destroy()
+            self.username = credentials[0]
+            self.send_action("log", credentials)
+            data = self.client_socket.recv(1024)
+            if data:
+                message = pickle.loads(data)
+                print(message)
+            self.return_input = message
+
+        def signup():
+            username = username_entry.get()
+            password = password_entry.get()
+            credentials = (username, password)
+            dialog.destroy()
+            self.username = credentials[0]
+            self.send_action("sign", credentials)
+            data = self.client_socket.recv(1024)
+            if data:
+                message = pickle.loads(data)
+                print(message)
+            self.return_input = message
+
+        login_button = tk.Button(dialog, text="Login", command=login, )
+        signup_button = tk.Button(dialog, text="Sign Up", command=signup)
+        login_button.grid(row=2, column=0)
+        signup_button.grid(row=2, column=1)
+
+        root.wait_window(dialog)
+        return self.return_input
+
+    def get_id(self):
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+
+        # Create a simple dialog to get the ID
+        self.whiteboard_id = simpledialog.askstring("Whiteboard ID", "Enter the whiteboard ID:")
+
+
+
 
 if __name__ == "__main__":
     app = ClientApp()
-    app.run()
+
