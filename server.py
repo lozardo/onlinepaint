@@ -1,5 +1,6 @@
 import os
 import socket
+import sqlite3
 import struct
 import threading
 import pickle
@@ -22,29 +23,54 @@ def send_to_all_clients(message, whiteboard_id):
 
 
 def handle_client(client_socket, addr):
+    username = ""
     whiteboard_id = -1
     while True:
         data = client_socket.recv(1024)
-        message = pickle.loads(data)
-        print(f"{addr}: {message}")
-        message_type = message[0]
+        if data:
+            message = pickle.loads(data)
+            print(f"{addr}: {message}")
+            message_type = message[0]
 
-        if message_type == "join":
-            whiteboard_id = message[1]
-            if whiteboard_id not in whiteboards:
-                whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
-                whiteboards[whiteboard_id].initialize(False)
-                connected_clients[whiteboard_id] = []
+            if message_type == 'sign':
+                print("sign")
+                register_result = register_client(message[1])
+                client_socket.sendall(pickle.dumps((register_result)))
+                if register_result:
+                    username = message[1][0]
+                    break
 
-            send_whiteboard_state_to_client(client_socket, whiteboard_id)
-            connected_clients[whiteboard_id].append((client_socket, addr))
+            if message_type == 'log':
+                print("log")
+                register_result = authenticate_client(message[1])
+                client_socket.sendall(pickle.dumps((register_result)))
+                if register_result:
+                    username = message[1][0]
+                    break
 
-        elif message_type == "draw":
-            # Broadcast drawing updates to other clients
-            broadcast_message = ("drawing", message[1])
-            whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
+    while True:
+        data = client_socket.recv(1024)
+        if data:
+            message = pickle.loads(data)
+            print(f"{addr}: {message}")
+            message_type = message[0]
 
-            send_to_all_clients(broadcast_message, whiteboard_id)
+            if message_type == "join":
+                whiteboard_id = message[1]
+                if whiteboard_id not in whiteboards:
+                    whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
+                    whiteboards[whiteboard_id].initialize(False)
+                    connected_clients[whiteboard_id] = []
+
+                send_whiteboard_state_to_client(client_socket, whiteboard_id)
+                connected_clients[whiteboard_id].append((client_socket, addr))
+
+            elif message_type == "draw":
+                # Broadcast drawing updates to other clients
+                broadcast_message = ("drawing", message[1])
+                whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
+
+                send_to_all_clients(broadcast_message, whiteboard_id)
 
     # Remove user when they disconnect
     connected_clients[whiteboard_id].remove((client_socket, addr))
@@ -83,7 +109,70 @@ def start_server():
         client_handler.start()
 
 
+def register_client(credentials):
+    # Extract username and password from credentials
+    username, password = credentials
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    # Check if the username already exists
+    cursor.execute("SELECT * FROM users WHERE username=?", (username,))
+    existing_user = cursor.fetchone()
+    print(existing_user)
+
+    if existing_user:
+        print(f"Username '{username}' already exists.")
+        # Inform the client that registration failed
+        conn.close()
+        return False
+
+    # Insert the new user into the database
+    cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+    conn.commit()
+    conn.close()
+
+    return True
+
+
+def authenticate_client(credentials):
+    # Extract username and password from credentials
+    username, password = credentials
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    # Check if the username and password match
+    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    user = cursor.fetchone()
+
+    if user:
+        print(f"Authentication successful for user '{username}'.")
+        # Inform the client that authentication was successful
+        conn.close()
+        return True
+    else:
+        print(f"Authentication failed for user '{username}'.")
+        # Inform the client that authentication failed
+        conn.close()
+        return False
+
+
 if __name__ == "__main__":
     whiteboards = {}  # Dictionary to store instances of WhiteboardApp
+
+    # Initialize the SQLite database
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    # Create users table if it does not exist
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                        username TEXT PRIMARY KEY,
+                        password TEXT
+                    )''')
+    conn.commit()
+    conn.close()
 
     start_server()
