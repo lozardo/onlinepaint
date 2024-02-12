@@ -13,72 +13,76 @@ lock = threading.Lock()
 
 def send_to_all_clients(message, whiteboard_id):
     with lock:
-        print(message)
         for client_socket, client_addr in connected_clients[whiteboard_id]:
             try:
-                print(f"{client_socket} - {client_addr}")
-                client_socket.sendall(pickle.dumps(message))
+                print(f"{client_addr}")
+                pickled_message = pickle.dumps(message)
+                client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big")+pickled_message)
             except Exception as e:
                 print(f"Error sending message to {client_addr}: {e}")
+                #client_socket.sendall(pickle.dumps(message))
 
 
 def handle_client(client_socket, addr):
     username = ""
     whiteboard_id = -1
-    while True:
-        data = client_socket.recv(1024)
-        if data:
-            message = pickle.loads(data)
-            print(f"{addr}: {message}")
-            message_type = message[0]
+    try:
+        while True:
+            data = client_socket.recv(1024)
+            if data:
+                message = pickle.loads(data)
+                print(f"{addr}: {message}")
+                message_type = message[0]
 
-            if message_type == 'sign':
-                print("sign")
-                register_result = register_client(message[1])
-                client_socket.sendall(pickle.dumps((register_result)))
-                if register_result:
-                    username = message[1][0]
-                    break
+                if message_type == 'sign':
+                    print("sign")
+                    register_result = register_client(message[1])
+                    client_socket.sendall(pickle.dumps((register_result)))
+                    if register_result:
+                        username = message[1][0]
+                        break
 
-            if message_type == 'log':
-                print("log")
-                register_result = authenticate_client(message[1])
-                client_socket.sendall(pickle.dumps((register_result)))
-                if register_result:
-                    username = message[1][0]
-                    break
+                if message_type == 'log':
+                    print("log")
+                    register_result = authenticate_client(message[1])
+                    client_socket.sendall(pickle.dumps((register_result)))
+                    if register_result:
+                        username = message[1][0]
+                        break
 
-    while True:
-        data = client_socket.recv(1024)
-        if data:
-            message = pickle.loads(data)
-            print(f"{addr}: {message}")
-            message_type = message[0]
+        while True:
+            data = client_socket.recv(1024)
+            if data:
+                message = pickle.loads(data)
+                print(f"{addr}: {message}")
+                message_type = message[0]
 
-            if message_type == "join":
-                whiteboard_id = message[1]
-                if whiteboard_id not in whiteboards:
-                    whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
-                    whiteboards[whiteboard_id].initialize(False)
-                    connected_clients[whiteboard_id] = []
+                if message_type == "join":
+                    whiteboard_id = message[1]
+                    if whiteboard_id not in whiteboards:
+                        whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
+                        whiteboards[whiteboard_id].initialize(False)
+                        connected_clients[whiteboard_id] = []
 
-                send_whiteboard_state_to_client(client_socket, whiteboard_id)
-                connected_clients[whiteboard_id].append((client_socket, addr))
+                    send_whiteboard_state_to_client(client_socket, whiteboard_id)
+                    connected_clients[whiteboard_id].append((client_socket, addr))
 
-            elif message_type == "draw":
-                # Broadcast drawing updates to other clients
-                broadcast_message = ("drawing", message[1])
-                whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
+                elif message_type == "draw":
+                    # Broadcast drawing updates to other clients
+                    broadcast_message = ("drawing", message[1])
+                    whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
 
-                send_to_all_clients(broadcast_message, whiteboard_id)
+                    send_to_all_clients(broadcast_message, whiteboard_id)
 
-    # Remove user when they disconnect
-    connected_clients[whiteboard_id].remove((client_socket, addr))
-    client_socket.close()
+    except Exception as e:
+        print(f"{username} left board {whiteboard_id}")
+        whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.png")
+        connected_clients[whiteboard_id].remove((client_socket, addr))
+        client_socket.close()
 
 
 def send_whiteboard_state_to_client(client_socket, whiteboard_id):
-    temp_file_path = f"temp_whiteboard_{whiteboard_id}.png"
+    temp_file_path = f"whiteboard_{whiteboard_id}.png"
 
     # Save the whiteboard image
     whiteboard = whiteboards[whiteboard_id]
@@ -98,9 +102,9 @@ def send_whiteboard_state_to_client(client_socket, whiteboard_id):
 
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", 5555))
+    server.bind(("192.168.0.239", 5555))
     server.listen(5)
-    print("Server listening on port 5555")
+    print("Server listening on port 5040")
 
     while True:
         client, addr = server.accept()
