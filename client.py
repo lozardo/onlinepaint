@@ -22,7 +22,7 @@ class ClientApp(WhiteboardApp):
         self.username = ''
         self.whiteboard_id = ''
         # Connect to the server
-        server_address = ("127.0.0.1", 5555)
+        server_address = ("192.168.0.239", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
 
@@ -51,14 +51,10 @@ class ClientApp(WhiteboardApp):
         self.initialize_whiteboard_with_image(image)
         print(f"Received message from server: {image}")
 
-        data = self.client_socket.recv(1024)
         while True:
-            print("b")
-            if data:
-                message = pickle.loads(data)
-                print(f"Received message from server: {message}")
             try:
-                data = self.client_socket.recv(1024)
+                data_size = self.client_socket.recv(4)
+                data = self.client_socket.recv(int.from_bytes(data_size, byteorder='big'))
                 print("a")
                 if data:
                     message = pickle.loads(data)
@@ -227,4 +223,3 @@ class ClientApp(WhiteboardApp):
 
 if __name__ == "__main__":
     app = ClientApp()
-
