@@ -22,7 +22,7 @@ class ClientApp(WhiteboardApp):
         self.username = ''
         self.whiteboard_id = ''
         # Connect to the server
-        server_address = ("192.168.0.239", 5555)
+        server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
 
@@ -73,9 +73,7 @@ class ClientApp(WhiteboardApp):
             file.write(image_data)
 
         # Load the image and set it as the background
-        background_image = pygame.image.load(temp_file_path)
-        self.screen.blit(background_image, (0, 0))
-        pygame.display.flip()
+        self.set_image(temp_file_path)
 
         # Remove the temporary file
         pygame.time.wait(1000)  # Wait for 1 second to ensure the file is closed
