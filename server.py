@@ -5,6 +5,8 @@ import struct
 import threading
 import pickle
 
+import pygame
+
 import white_lib
 
 connected_clients = {}  # Dictionary to store connected clients for each whiteboard
@@ -51,6 +53,7 @@ def handle_client(client_socket, addr):
                         break
 
         while True:
+            data = None
             data = client_socket.recv(1024)
             if data:
                 message = pickle.loads(data)
@@ -62,10 +65,16 @@ def handle_client(client_socket, addr):
                     if whiteboard_id not in whiteboards:
                         whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
                         whiteboards[whiteboard_id].initialize(False)
-                        connected_clients[whiteboard_id] = []
+                        if not whiteboard_exists_in_db(whiteboard_id):
+                            # Add the whiteboard to the database
+                            create_whiteboard(whiteboard_id, username)
+                        else:
+                            whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
+                    connected_clients[whiteboard_id] = []
 
                     send_whiteboard_state_to_client(client_socket, whiteboard_id)
                     connected_clients[whiteboard_id].append((client_socket, addr))
+
 
                 elif message_type == "draw":
                     # Broadcast drawing updates to other clients
@@ -76,19 +85,19 @@ def handle_client(client_socket, addr):
 
     except Exception as e:
         print(f"{username} left board {whiteboard_id}")
-        whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.png")
+        whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
         connected_clients[whiteboard_id].remove((client_socket, addr))
         client_socket.close()
 
 
 def send_whiteboard_state_to_client(client_socket, whiteboard_id):
-    temp_file_path = f"whiteboard_{whiteboard_id}.png"
+    file_path = f"whiteboard_{whiteboard_id}.bmp"
 
     # Save the whiteboard image
     whiteboard = whiteboards[whiteboard_id]
-    whiteboard.save_picture_path(temp_file_path)
+    whiteboard.save_picture_path(file_path)
 
-    with open(temp_file_path, "rb") as file:
+    with open(file_path, "rb") as file:
         # Read the image file as binary data
         image_data = file.read()
         # Send the image size to the client
@@ -102,7 +111,7 @@ def send_whiteboard_state_to_client(client_socket, whiteboard_id):
 
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("192.168.0.239", 5555))
+    server.bind(("127.0.0.1", 5555))
     server.listen(5)
     print("Server listening on port 5040")
 
@@ -164,19 +173,47 @@ def authenticate_client(credentials):
         return False
 
 
+def create_whiteboard(whiteboard_id, creator_username):
+    conn = sqlite3.connect('whiteboards.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO whiteboards (ID, creator) VALUES (?, ?)",
+                   (whiteboard_id, creator_username))
+    conn.commit()
+    conn.close()
+
+
+def whiteboard_exists_in_db(whiteboard_id):
+    conn = sqlite3.connect('whiteboards.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT ID FROM whiteboards WHERE ID=?", (whiteboard_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
 if __name__ == "__main__":
     whiteboards = {}  # Dictionary to store instances of WhiteboardApp
 
-    # Initialize the SQLite database
-    conn = sqlite3.connect('users.db')
-    cursor = conn.cursor()
+    # Initialize the SQLite databases
+    conn_users = sqlite3.connect('users.db')
+    cursor_users = conn_users.cursor()
 
     # Create users table if it does not exist
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                        username TEXT PRIMARY KEY,
-                        password TEXT
-                    )''')
-    conn.commit()
-    conn.close()
+    cursor_users.execute('''CREATE TABLE IF NOT EXISTS users (
+                                username TEXT PRIMARY KEY,
+                                password TEXT
+                            )''')
+    conn_users.commit()
+    conn_users.close()
+
+    conn_whiteboards = sqlite3.connect('whiteboards.db')
+    cursor_whiteboards = conn_whiteboards.cursor()
+
+    # Create whiteboards table if it does not exist
+    cursor_whiteboards.execute('''CREATE TABLE IF NOT EXISTS whiteboards (
+                                    ID INTEGER PRIMARY KEY,
+                                    creator TEXT
+                                )''')
+    conn_whiteboards.commit()
+    conn_whiteboards.close()
 
     start_server()
