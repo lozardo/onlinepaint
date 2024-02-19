@@ -30,7 +30,8 @@ def handle_client(client_socket, addr):
     whiteboard_id = -1
     try:
         while True:
-            data = client_socket.recv(1024)
+            data_size = client_socket.recv(4)
+            data = client_socket.recv(int.from_bytes(data_size, byteorder='big'))
             if data:
                 message = pickle.loads(data)
                 print(f"{addr}: {message}")
@@ -53,8 +54,8 @@ def handle_client(client_socket, addr):
                         break
 
         while True:
-            data = None
-            data = client_socket.recv(1024)
+            data_size = client_socket.recv(4)
+            data = client_socket.recv(int.from_bytes(data_size, byteorder='big'))
             if data:
                 message = pickle.loads(data)
                 print(f"{addr}: {message}")
