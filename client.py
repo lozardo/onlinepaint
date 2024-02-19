@@ -45,7 +45,6 @@ class ClientApp(WhiteboardApp):
         return image_data
 
     def receive_messages(self):
-        getting_whiteboard_state = True
         image = self.receive_image()
 
         self.initialize_whiteboard_with_image(image)
@@ -98,7 +97,9 @@ class ClientApp(WhiteboardApp):
     def send_action(self, action_type, data):
         drawing_action = (action_type, data)
         try:
-            self.client_socket.sendall(pickle.dumps(drawing_action))
+            pickled_message = pickle.dumps(drawing_action)
+            self.client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big") + pickled_message)
+
         except:
             print(f"Error sending data to server")
 
@@ -200,7 +201,6 @@ class ClientApp(WhiteboardApp):
                 message = pickle.loads(data)
                 print(message)
             self.return_input = message
-
         login_button = tk.Button(dialog, text="Login", command=login, )
         signup_button = tk.Button(dialog, text="Sign Up", command=signup)
         login_button.grid(row=2, column=0)
