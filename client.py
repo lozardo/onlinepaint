@@ -4,16 +4,17 @@ import struct
 import tkinter as tk
 from tkinter import simpledialog
 import pygame_widgets
+from pygame.examples.textinput import TextInput
 
 from white_lib import WhiteboardApp
 import pickle
 import pygame
 import sys
 import threading
-#import pygame_textinput
+
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
-
+from pygame_widgets.textbox import TextBox
 
 class ClientApp(WhiteboardApp):
     def __init__(self):
@@ -28,6 +29,8 @@ class ClientApp(WhiteboardApp):
 
         # Get credentials from the user
         while not self.get_credentials():
+            pass
+        while not self.get_id():
             pass
 
         # Initialize the whiteboard
@@ -105,7 +108,6 @@ class ClientApp(WhiteboardApp):
 
     def run(self):
         self.screen.fill((255, 255, 255))  # White background
-        self.get_id()
         self.send_action("join", self.whiteboard_id)
         threading.Thread(target=self.receive_messages).start()
         while True:
@@ -161,60 +163,121 @@ class ClientApp(WhiteboardApp):
             self.clock.tick(60)
 
     def get_credentials(self):
-        # Get credentials from the user and send them to the server
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
-        self.return_input = False
-        # Create a login dialog to get username and password
-        dialog = tk.Toplevel(root)
-        dialog.title("Login")
-        tk.Label(dialog, text="Username:").grid(row=0, column=0)
-        tk.Label(dialog, text="Password:").grid(row=1, column=0)
+        # Pygame setup
+        screen_width, screen_height = 800, 600
+        screen = pygame.display.set_mode((screen_width, screen_height))
+        pygame.display.set_caption("Login")
+        username = ""
+        pw = ""
+        action = ""
+        # Fonts
+        font = pygame.font.Font(None, 36)
+        # Text input fields
+        username_textbox = TextBox(screen, screen_width // 2 - 100, screen_height // 2 - 50, 200, 40,
+                                   fontSize=36)
+        password_textbox = TextBox(screen, screen_width // 2 - 100, screen_height // 2 + 50, 200, 40,
+                                                  fontSize=36, password=True, textColour=(0, 200, 0))
+        login_button = Button(screen, screen_width // 2 + 100, screen_height // 2 + 120, 100, 40, text="log in", inactiveColour=(200, 50, 0), hoverColour=(150, 0, 0), pressedColour=(0, 200, 20))
 
-        username_entry = tk.Entry(dialog)
-        password_entry = tk.Entry(dialog, show="*")
-        username_entry.grid(row=0, column=1)
-        password_entry.grid(row=1, column=1)
+        sign_button = Button(screen, screen_width // 2 - 200, screen_height // 2 + 120, 100, 40, text="sign up", onClick=end_run, inactiveColour=(200, 50, 0), hoverColour=(150, 0, 0), pressedColour=(0, 200, 20))
+#need to make it send info to server and pop up a window on a correct response, if its fine close this. HOW THE FUCK!??!?!?!?!
+        run = True
+        while run:
+            screen.fill((200, 200, 200))
 
-        def login():
-            username = username_entry.get()
-            password = password_entry.get()
-            credentials = (username, password)
-            dialog.destroy()
-            self.username = credentials[0]
-            self.send_action("log", credentials)
-            data = self.client_socket.recv(1024)
-            if data:
-                message = pickle.loads(data)
-                print(message)
-            self.return_input = message
+            events = pygame.event.get()
+            for event in events:
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    quit()
+                    break
 
-        def signup():
-            username = username_entry.get()
-            password = password_entry.get()
-            credentials = (username, password)
-            dialog.destroy()
-            self.username = credentials[0]
-            self.send_action("sign", credentials)
-            data = self.client_socket.recv(1024)
-            if data:
-                message = pickle.loads(data)
-                print(message)
-            self.return_input = message
-        login_button = tk.Button(dialog, text="Login", command=login, )
-        signup_button = tk.Button(dialog, text="Sign Up", command=signup)
-        login_button.grid(row=2, column=0)
-        signup_button.grid(row=2, column=1)
+            # Update text inputs
+            pygame_widgets.update(events)
+            pygame.display.update()
+            username = username_textbox.getText()
+            pw = password_textbox.getText()
 
-        root.wait_window(dialog)
-        return self.return_input
+        print(username)
+        print(pw)
 
     def get_id(self):
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
+        # Initialize Pygame
+        pygame.init()
 
-        # Create a simple dialog to get the ID
-        self.whiteboard_id = simpledialog.askstring("Whiteboard ID", "Enter the whiteboard ID:")
+        # Set up the screen
+        screen_width = 800
+        screen_height = 600
+        screen = pygame.display.set_mode((screen_width, screen_height))
+        pygame.display.set_caption("Whiteboard Setup")
+
+        # Set up fonts
+        font = pygame.font.SysFont(None, 40)
+
+        create_button = pygame_widgets.Button(
+            screen, 200, 200, 400, 50, text="Create Whiteboard", fontSize=30, margin=20, inactiveColour=(200, 200, 200),
+            pressedColour=(150, 150, 150), onClick=self.create_whiteboard
+        )
+
+        join_button = pygame_widgets.Button(
+            screen, 200, 300, 400, 50, text="Join Existing Whiteboard", fontSize=30, margin=20,
+            inactiveColour=(200, 200, 200),
+            pressedColour=(150, 150, 150), onClick=self.join_existing_whiteboard
+        )
+
+        running = True
+        while running:
+            screen.fill((255, 255, 255))
+
+            create_button.listen(pygame.event.get())
+            join_button.listen(pygame.event.get())
+
+            create_button.draw()
+            join_button.draw()
+
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+
+        pygame.quit()
+
+    def create_whiteboard(self, private):
+        # Create a dialog to get the whiteboard ID
+        dialog = tk.Toplevel()
+        dialog.title("Create Whiteboard")
+
+        if private:
+            tk.Label(dialog, text="Enter password for private whiteboard:").pack()
+            password_entry = tk.Entry(dialog, show="*")
+            password_entry.pack()
+
+        def submit():
+            dialog.destroy()
+            password = password_entry.get() if private else None
+            self.send_action(("create", password))
+
+        submit_button = tk.Button(dialog, text="Submit", command=submit)
+        submit_button.pack()
+
+    def join_existing_whiteboard(self):
+        # Create a dialog to get the whiteboard ID
+        dialog = tk.Toplevel()
+        dialog.title("Join Whiteboard")
+
+        tk.Label(dialog, text="Enter whiteboard ID:").pack()
+        id_entry = tk.Entry(dialog)
+        id_entry.pack()
+
+        def submit():
+            dialog.destroy()
+            self.whiteboard_id = ("join", id_entry.get())
+            self.send_action(*self.whiteboard_id)
+
+        submit_button = tk.Button(dialog, text="Submit", command=submit)
+        submit_button.pack()
+
 
 
 
