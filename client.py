@@ -16,11 +16,13 @@ from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
 from pygame_widgets.textbox import TextBox
 
+#buttons work, now need to login after presses, so receive messages should be able to set up a sign to tell the button func if logged or not
 class ClientApp(WhiteboardApp):
     def __init__(self):
         # Initialize pygame
-        pygame.init()
+
         self.username = ''
+        self.logged = False
         self.whiteboard_id = ''
         self.button_check = [True, '']  # global var for button presses (if need to check and last button type pressed
         # Connect to the server
@@ -31,7 +33,7 @@ class ClientApp(WhiteboardApp):
         # Get credentials from the user
         self.get_credentials()
         self.get_id()
-
+        pygame.init()
 
 
         # Initialize the whiteboard
@@ -169,22 +171,22 @@ class ClientApp(WhiteboardApp):
         self.button_check = [False, button_name]
         print("bn:")
         print(button_name)
+        if button_name in ["sign", "log"]:
+            self.send_action(button_name, info) #will send log/sign, (username, pw)
 
     def get_credentials(self):
-        # Pygame setup
+        pygame.init()
         screen_width, screen_height = 800, 600
         screen = pygame.display.set_mode((screen_width, screen_height))
         pygame.display.set_caption("Login")
         username = ""
         pw = ""
         action = ""
-        # Fonts
         font = pygame.font.Font(None, 36)
-        # Text input fields
-        username_textbox = TextBox(screen, screen_width // 2 - 100, screen_height // 2 - 50, 200, 40,
-                                   fontSize=36)
+
+        username_textbox = TextBox(screen, screen_width // 2 - 100, screen_height // 2 - 50, 200, 40, fontSize=36)
         password_textbox = TextBox(screen, screen_width // 2 - 100, screen_height // 2 + 50, 200, 40,
-                                                  fontSize=36, password=True, textColour=(0, 200, 0))
+                                   fontSize=36, password=True, textColour=(0, 200, 0))
 
         login_button = Button(screen, screen_width // 2 + 100, screen_height // 2 + 120, 100, 40, text="log in",
                               onClick=lambda: self.button_pressed("log", (username, pw)), inactiveColour=(200, 50, 0),
@@ -193,7 +195,7 @@ class ClientApp(WhiteboardApp):
         sign_button = Button(screen, screen_width // 2 - 200, screen_height // 2 + 120, 100, 40, text="sign up",
                              onClick=lambda: self.button_pressed("sign", (username, pw)), inactiveColour=(200, 50, 0),
                              hoverColour=(150, 0, 0), pressedColour=(0, 200, 20))
-
+        
         self.button_check[0] = True
         while self.button_check[0]:
             screen.fill((200, 200, 200))
@@ -204,6 +206,9 @@ class ClientApp(WhiteboardApp):
                     pygame.quit()
                     quit()
                     break
+                    
+            if not self.username == '' and not self.pw == '' :
+                
 
             # Update text inputs
             pygame_widgets.update(events)
@@ -215,19 +220,24 @@ class ClientApp(WhiteboardApp):
         print(pw)
         print(self.button_check[1])
 
-    def get_id(self): problem here
+        login_button.hide()
+        sign_button.hide()
+        username_textbox.hide()
+        password_textbox.hide()
+
+    def get_id(self):
         screen_width, screen_height = 800, 600
         screen = pygame.display.set_mode((screen_width, screen_height))
         pygame.display.set_caption("Whiteboard Setup")
-
-        # Set up fonts
         font = pygame.font.SysFont(None, 40)
 
-        create_button = Button(screen, screen_width // 2 - 200, screen_height // 2 + 120, 100, 40, text="create a new whiteboard",
-                             onClick=lambda: self.button_pressed("create"), inactiveColour=(200, 50, 0),
-                             hoverColour=(150, 0, 0), pressedColour=(0, 200, 20))
+        create_button = Button(screen, screen_width // 2 - 200, screen_height // 2 + 120, 100, 40,
+                               text="create a new whiteboard",
+                               onClick=lambda: self.button_pressed("create"), inactiveColour=(200, 50, 0),
+                               hoverColour=(150, 0, 0), pressedColour=(0, 200, 20))
 
-        join_button = Button(screen, screen_width // 2 - 200, screen_height // 2 + 120, 100, 40, text="join an existing whitebaord",
+        join_button = Button(screen, screen_width // 2 + 100, screen_height // 2 + 120, 100, 40,
+                             text="join an existing whiteboard",
                              onClick=lambda: self.button_pressed("join"), inactiveColour=(200, 50, 0),
                              hoverColour=(150, 0, 0), pressedColour=(0, 200, 20))
 
@@ -238,14 +248,18 @@ class ClientApp(WhiteboardApp):
             events = pygame.event.get()
             for event in events:
                 if event.type == pygame.QUIT:
+                    self.button_check[0] = False
                     pygame.quit()
                     quit()
                     break
 
-            pygame_widgets.update(events)
+            pygame_widgets.update(events)  # Update widgets
+            create_button.draw()  # Draw create button
+            join_button.draw()  # Draw join button
             pygame.display.update()
 
-        pygame.quit()
+        # Reinitialize Pygame after quitting
+        pygame.init()
 
     def create_whiteboard(self, private):
         # Create a dialog to get the whiteboard ID
