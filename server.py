@@ -27,7 +27,7 @@ def send_to_all_clients(message, whiteboard_id):
 
 def handle_client(client_socket, addr):
     username = ""
-    whiteboard_id = -1
+    whiteboard_ids = set()
     try:
         while True:
             data_size = client_socket.recv(4)
@@ -51,6 +51,7 @@ def handle_client(client_socket, addr):
                     client_socket.sendall(pickle.dumps((register_result)))
                     if register_result:
                         username = message[1][0]
+                        whiteboard_ids = get_user_whiteboard_ids(username)
                         break
 
         while True:
@@ -66,16 +67,22 @@ def handle_client(client_socket, addr):
                     if whiteboard_id not in whiteboards:
                         whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
                         whiteboards[whiteboard_id].initialize(False)
+
                         if not whiteboard_exists_in_db(whiteboard_id):
                             # Add the whiteboard to the database
                             create_whiteboard(whiteboard_id, username)
                         else:
                             whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
-                    connected_clients[whiteboard_id] = []
 
                     send_whiteboard_state_to_client(client_socket, whiteboard_id)
-                    connected_clients[whiteboard_id].append((client_socket, addr))
+                    try:
+                        connected_clients[whiteboard_id].append((client_socket, addr))
 
+                        # Update user's record in the database to include the newly joined whiteboard ID
+                        update_user_whiteboard_ids(username, whiteboard_id)
+
+                    except:
+                        connected_clients[whiteboard_id] = [(client_socket, addr)]
 
                 elif message_type == "draw":
                     # Broadcast drawing updates to other clients
@@ -86,10 +93,12 @@ def handle_client(client_socket, addr):
 
     except Exception as e:
         print(f"{username} left board {whiteboard_id}")
-        whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
-        connected_clients[whiteboard_id].remove((client_socket, addr))
+        for whiteboard_id in whiteboard_ids:
+            whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
+            connected_clients[whiteboard_id].remove((client_socket, addr))
+            # Remove the whiteboard ID from the user's record when they leave
+            remove_user_whiteboard_id(username, whiteboard_id)
         client_socket.close()
-
 
 def send_whiteboard_state_to_client(client_socket, whiteboard_id):
     file_path = f"whiteboard_{whiteboard_id}.bmp"
@@ -122,6 +131,46 @@ def start_server():
         client_handler = threading.Thread(target=handle_client, args=(client, addr))
         client_handler.start()
 
+
+def update_user_whiteboard_ids(username, whiteboard_id):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT whiteboard_ids FROM users WHERE username=?", (username,))
+    user_record = cursor.fetchone()
+    if user_record:
+        whiteboard_ids = set(user_record[0].split(',')) if user_record[0] else set()
+        whiteboard_ids.add(whiteboard_id)
+        new_whiteboard_ids = ','.join(whiteboard_ids)
+        cursor.execute("UPDATE users SET whiteboard_ids=? WHERE username=?", (new_whiteboard_ids, username))
+        conn.commit()
+    conn.close()
+
+
+def remove_user_whiteboard_id(username, whiteboard_id):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT whiteboard_ids FROM users WHERE username=?", (username,))
+    user_record = cursor.fetchone()
+    if user_record:
+        whiteboard_ids = set(user_record[0].split(',')) if user_record[0] else set()
+        if whiteboard_id in whiteboard_ids:
+            whiteboard_ids.remove(whiteboard_id)
+            new_whiteboard_ids = ','.join(whiteboard_ids)
+            cursor.execute("UPDATE users SET whiteboard_ids=? WHERE username=?", (new_whiteboard_ids, username))
+            conn.commit()
+    conn.close()
+
+
+def get_user_whiteboard_ids(username):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT whiteboard_ids FROM users WHERE username=?", (username,))
+    user_record = cursor.fetchone()
+    conn.close()
+    if user_record:
+        return set(user_record[0].split(',')) if user_record[0] else set()
+    else:
+        return set()
 
 def register_client(credentials):
     # Extract username and password from credentials
@@ -191,6 +240,7 @@ def whiteboard_exists_in_db(whiteboard_id):
     conn.close()
     return result is not None
 
+
 if __name__ == "__main__":
     whiteboards = {}  # Dictionary to store instances of WhiteboardApp
 
@@ -201,7 +251,8 @@ if __name__ == "__main__":
     # Create users table if it does not exist
     cursor_users.execute('''CREATE TABLE IF NOT EXISTS users (
                                 username TEXT PRIMARY KEY,
-                                password TEXT
+                                password TEXT,
+                                whiteboard_ids TEXT
                             )''')
     conn_users.commit()
     conn_users.close()
