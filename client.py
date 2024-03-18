@@ -12,6 +12,7 @@ import threading
 #import pygame_textinput
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
+
 class ClientApp(WhiteboardApp):
     def __init__(self):
         # Initialize pygame
@@ -44,6 +45,7 @@ class ClientApp(WhiteboardApp):
         print(f"Received message from server: {image}")
         while True:
             try:
+                print("rcving")
                 data_size = self.client_socket.recv(4)
                 data = self.client_socket.recv(int.from_bytes(data_size, byteorder='big'))
                 print("a")
@@ -54,6 +56,7 @@ class ClientApp(WhiteboardApp):
                     print(f"Received message from server: {message}")
             except Exception as e:
                 print(f"Error receiving data from server: {e}")
+
     def initialize_whiteboard_with_image(self, image_data):
         # Create a temporary file to save the received whiteboard image
         temp_file_path = "temp_received_whiteboard.png"
@@ -89,7 +92,7 @@ class ClientApp(WhiteboardApp):
             print(f"Error sending data to server")
 
     def run(self):
-        self.get_id()
+        self.create_or_join()
         self.initialize(True)
         self.send_action("join", self.whiteboard_id)
         threading.Thread(target=self.receive_messages).start()
@@ -201,13 +204,36 @@ class ClientApp(WhiteboardApp):
         signup_button.grid(row=3, column=1, sticky="w", padx=(5, 50), pady=5)
 
         root.wait_window(dialog)
-        return not self.return_input #false if return input exists, otherwise false
+        return not self.return_input #false if return input exists, otherwise true
 
-    def get_id(self):
+    def create_or_join(self):
         root = tk.Tk()
         root.withdraw()  # Hide the main window
-        # Create a simple dialog to get the ID
-        self.whiteboard_id = simpledialog.askstring("Whiteboard ID", "Enter the whiteboard ID:")
+
+        # Create a dialog to choose between joining or creating a whiteboard
+        dialog = tk.Toplevel(root)
+        dialog.title("Whiteboard Setup")
+        dialog.geometry("300x100")  # Set the size of the dialog window
+
+        # Centering the widgets
+        dialog.grid_columnconfigure(0, weight=1)
+
+        def join_existing():
+            dialog.destroy()
+            self.whiteboard_id = simpledialog.askstring("Join Whiteboard", "Enter the whiteboard ID:")
+            self.send_action("join", self.whiteboard_id)
+
+        def create_new():
+            dialog.destroy()
+            self.create_whiteboard(private=False)
+
+        join_button = tk.Button(dialog, text="Join Existing Whiteboard", command=join_existing)
+        create_button = tk.Button(dialog, text="Create New Whiteboard", command=create_new)
+
+        join_button.pack(pady=10)
+        create_button.pack(pady=10)
+
+        root.wait_window(dialog)
 
 if __name__ == "__main__":
     app = ClientApp()
