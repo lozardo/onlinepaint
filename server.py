@@ -51,7 +51,7 @@ def handle_client(client_socket, addr):
                     client_socket.sendall(pickle.dumps((register_result)))
                     if register_result:
                         username = message[1][0]
-                        whiteboard_ids = get_user_whiteboard_ids(username)
+                        #whiteboard_ids = get_user_whiteboard_ids(username)
                         break
 
         while True:
@@ -81,7 +81,8 @@ def handle_client(client_socket, addr):
                         # Update user's record in the database to include the newly joined whiteboard ID
                         update_user_whiteboard_ids(username, whiteboard_id)
 
-                    except:
+                    except Exception as e:
+                        print(e)
                         connected_clients[whiteboard_id] = [(client_socket, addr)]
 
                 elif message_type == "draw":
