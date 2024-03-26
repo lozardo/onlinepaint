@@ -1,9 +1,11 @@
 import os
 import socket
 import sqlite3
+import string
 import struct
 import threading
 import pickle
+import random
 
 import pygame
 
@@ -12,17 +14,28 @@ import white_lib
 connected_clients = {}  # Dictionary to store connected clients for each whiteboard
 lock = threading.Lock()
 
+def generate_unique_whiteboard_id():
+    # Generate a random alphanumeric ID of length 6
+    id_length = 6
+    while True:
+        new_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=id_length))
+        # Check if the ID already exists in the database
+        if not whiteboard_exists_in_db(new_id):
+            return new_id
 
 def send_to_all_clients(message, whiteboard_id):
     with lock:
         for client_socket, client_addr in connected_clients[whiteboard_id]:
             try:
                 print(f"{client_addr}")
-                pickled_message = pickle.dumps(message)
-                client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big")+pickled_message)
+                send_to_client(client_socket, message)
             except Exception as e:
                 print(f"Error sending message to {client_addr}: {e}")
                 #client_socket.sendall(pickle.dumps(message))
+
+def send_to_client(client_socket, message):
+    pickled_message = pickle.dumps(message)
+    client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big") + pickled_message)
 
 
 def handle_client(client_socket, addr):
@@ -40,7 +53,7 @@ def handle_client(client_socket, addr):
                 if message_type == 'sign':
                     print("sign")
                     register_result = register_client(message[1])
-                    client_socket.sendall(pickle.dumps((register_result)))
+                    send_to_client(client_socket,(register_result))
                     if register_result:
                         username = message[1][0]
                         break
@@ -48,7 +61,7 @@ def handle_client(client_socket, addr):
                 if message_type == 'log':
                     print("log")
                     register_result = authenticate_client(message[1])
-                    client_socket.sendall(pickle.dumps((register_result)))
+                    send_to_client(client_socket,(register_result))
                     if register_result:
                         username = message[1][0]
                         #whiteboard_ids = get_user_whiteboard_ids(username)
@@ -64,26 +77,45 @@ def handle_client(client_socket, addr):
 
                 if message_type == "join":
                     whiteboard_id = message[1]
-                    if whiteboard_id not in whiteboards:
+
+                    if not whiteboard_exists_in_db(whiteboard_id):
+                        # return false for not existing
+                        send_to_client(client_socket, (False, -1))
+
+                    elif whiteboard_id not in whiteboards:
+                        print("redo")
                         whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
                         whiteboards[whiteboard_id].initialize(False)
+                        whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
+                        send_whiteboard_state_to_client(client_socket, whiteboard_id)
 
-                        if not whiteboard_exists_in_db(whiteboard_id):
-                            # Add the whiteboard to the database
-                            create_whiteboard(whiteboard_id, username)
-                        else:
-                            whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
+                        try:
+                            connected_clients[whiteboard_id].append((client_socket, addr))
+                            # Update user's record in the database to include the newly joined whiteboard ID
+                            update_user_whiteboard_ids(username, whiteboard_id)
 
-                    send_whiteboard_state_to_client(client_socket, whiteboard_id)
-                    try:
-                        connected_clients[whiteboard_id].append((client_socket, addr))
+                        except Exception as e:
+                            print(e)
+                            connected_clients[whiteboard_id] = [(client_socket, addr)]
+                        print(client_socket[whiteboard_id])
+                        send_to_client(client_socket, (True, whiteboard_id))
 
-                        # Update user's record in the database to include the newly joined whiteboard ID
-                        update_user_whiteboard_ids(username, whiteboard_id)
-
-                    except Exception as e:
-                        print(e)
-                        connected_clients[whiteboard_id] = [(client_socket, addr)]
+                elif message_type == "create":
+                    # Generate a unique whiteboard ID
+                    new_whiteboard_id = generate_unique_whiteboard_id()
+                    # Create the whiteboard
+                    whiteboards[new_whiteboard_id] = white_lib.WhiteboardApp()
+                    whiteboards[new_whiteboard_id].initialize(False)
+                    # Add the whiteboard to the database
+                    create_whiteboard(new_whiteboard_id, username)
+                    # Send the new whiteboard ID to the client
+                    print("sending whiteboard ID")
+                    send_to_client(client_socket, (True, new_whiteboard_id))
+                    print("sent")
+                    # Join the user to the newly created whiteboard
+                    connected_clients[new_whiteboard_id] = [(client_socket, addr)]
+                    update_user_whiteboard_ids(username, new_whiteboard_id)
+                    whiteboard_id = new_whiteboard_id
 
                 elif message_type == "draw":
                     # Broadcast drawing updates to other clients
@@ -93,6 +125,7 @@ def handle_client(client_socket, addr):
                     send_to_all_clients(broadcast_message, whiteboard_id)
 
     except Exception as e:
+        print(e)
         print(f"{username} left board {whiteboard_id}")
         for whiteboard_id in whiteboard_ids:
             whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
@@ -263,7 +296,7 @@ if __name__ == "__main__":
 
     # Create whiteboards table if it does not exist
     cursor_whiteboards.execute('''CREATE TABLE IF NOT EXISTS whiteboards (
-                                    ID INTEGER PRIMARY KEY,
+                                    ID TEXT PRIMARY KEY,
                                     creator TEXT
                                 )''')
     conn_whiteboards.commit()
