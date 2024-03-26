@@ -1,6 +1,7 @@
 import os
 import socket
 import struct
+import tkinter
 import tkinter as tk
 from tkinter import simpledialog
 import pygame_widgets
@@ -57,6 +58,18 @@ class ClientApp(WhiteboardApp):
             except Exception as e:
                 print(f"Error receiving data from server: {e}")
 
+    def receive_message(self):
+        try:
+            print("rcving 1")
+            data_size = self.client_socket.recv(4)
+            data = self.client_socket.recv(int.from_bytes(data_size, byteorder='big'))
+            if data:
+                message = pickle.loads(data)
+                print(f"Received message from server: {message}")
+                return message
+        except Exception as e:
+            print(f"Error receiving data from server: {e}")
+
     def initialize_whiteboard_with_image(self, image_data):
         # Create a temporary file to save the received whiteboard image
         temp_file_path = "temp_received_whiteboard.png"
@@ -69,6 +82,7 @@ class ClientApp(WhiteboardApp):
         pygame.time.wait(1000)  # Wait for 1 second to ensure the file is closed
         pygame.display.flip()
         os.remove(temp_file_path)
+
     def update_image_with_chunk(self, chunk):
         # Assuming self.image is a pygame.Surface representing your whiteboard image
         if not hasattr(self, 'image'):
@@ -82,10 +96,10 @@ class ClientApp(WhiteboardApp):
         self.screen.blit(self.image, (0, 0))
         pygame.display.flip()
 
-    def send_action(self, action_type, data):
-        drawing_action = (action_type, data)
+    def send_action(self, action_type, data=''):
+        action = (action_type, data)
         try:
-            pickled_message = pickle.dumps(drawing_action)
+            pickled_message = pickle.dumps(action)
             self.client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big") + pickled_message)
 
         except:
@@ -93,8 +107,16 @@ class ClientApp(WhiteboardApp):
 
     def run(self):
         self.create_or_join()
+        while True:
+            message = self.receive_message()
+            if message:
+                if message[0] == False: #false if cant join
+                    self.popup_notice("whiteboard doesnt exist")
+                    self.create_or_join()
+                else:
+                    self.whiteboard_id = message[1]
+                    break
         self.initialize(True)
-        self.send_action("join", self.whiteboard_id)
         threading.Thread(target=self.receive_messages).start()
 
         while True:
@@ -175,10 +197,9 @@ class ClientApp(WhiteboardApp):
             dialog.destroy()
             self.username = credentials[0]
             self.send_action("log", credentials)
-            data = self.client_socket.recv(1024)
-            if data:
-                message = pickle.loads(data)
-                print(message)
+            message = self.receive_message()
+            if message == False:
+                self.popup_notice("username or password incorrect")
             self.return_input = message
 
         def signup():
@@ -191,10 +212,9 @@ class ClientApp(WhiteboardApp):
             dialog.destroy()
             self.username = credentials[0]
             self.send_action("sign", credentials)
-            data = self.client_socket.recv(1024)
-            if data:
-                message = pickle.loads(data)
-                print(message)
+            message = self.receive_message()
+            if message == False:
+                self.popup_notice("username already exists or password is too short")
             self.return_input = message
 
         login_button = tk.Button(dialog, text="Login", command=login)
@@ -225,7 +245,7 @@ class ClientApp(WhiteboardApp):
 
         def create_new():
             dialog.destroy()
-            self.create_whiteboard(private=False)
+            self.send_action("create")
 
         join_button = tk.Button(dialog, text="Join Existing Whiteboard", command=join_existing)
         create_button = tk.Button(dialog, text="Create New Whiteboard", command=create_new)
@@ -233,6 +253,27 @@ class ClientApp(WhiteboardApp):
         join_button.pack(pady=10)
         create_button.pack(pady=10)
 
+        root.wait_window(dialog)
+
+    def popup_notice(self, message):
+        # Create a Tkinter window
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+
+        # Create a dialog window
+        dialog = tk.Toplevel(root)
+        dialog.title("Notice")
+        dialog.geometry("300x100")
+
+        # Add a label to display the message
+        label = tk.Label(dialog, text=message, fg="red")
+        label.pack()
+
+        # Add a close button to close the dialog window
+        close_button = tk.Button(dialog, text="Close", command=dialog.destroy)
+        close_button.pack()
+
+        # Wait for the dialog window to close
         root.wait_window(dialog)
 
 if __name__ == "__main__":
