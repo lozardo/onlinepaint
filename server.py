@@ -40,6 +40,7 @@ def send_to_client(client_socket, message):
 
 def handle_client(client_socket, addr):
     username = ""
+    client_stuff = (client_socket, addr)
     whiteboard_ids = set()
     try:
         while True:
@@ -87,18 +88,17 @@ def handle_client(client_socket, addr):
                         whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
                         whiteboards[whiteboard_id].initialize(False)
                         whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
-                        send_whiteboard_state_to_client(client_socket, whiteboard_id)
 
-                        try:
-                            connected_clients[whiteboard_id].append((client_socket, addr))
-                            # Update user's record in the database to include the newly joined whiteboard ID
-                            update_user_whiteboard_ids(username, whiteboard_id)
+                    try:
+                        connected_clients[whiteboard_id].append(client_stuff)
+                        # Update user's record in the database to include the newly joined whiteboard ID
+                        update_user_whiteboard_ids(username, whiteboard_id)
 
-                        except Exception as e:
-                            print(e)
-                            connected_clients[whiteboard_id] = [(client_socket, addr)]
-                        print(client_socket[whiteboard_id])
-                        send_to_client(client_socket, (True, whiteboard_id))
+                    except Exception as e:
+                        print(e)
+                        connected_clients[whiteboard_id] = [client_stuff]
+                    send_to_client(client_socket, (True, whiteboard_id))
+                    send_whiteboard_state_to_client(client_socket, whiteboard_id)
 
                 elif message_type == "create":
                     # Generate a unique whiteboard ID
@@ -113,7 +113,7 @@ def handle_client(client_socket, addr):
                     send_to_client(client_socket, (True, new_whiteboard_id))
                     print("sent")
                     # Join the user to the newly created whiteboard
-                    connected_clients[new_whiteboard_id] = [(client_socket, addr)]
+                    connected_clients[new_whiteboard_id] = [client_stuff]
                     update_user_whiteboard_ids(username, new_whiteboard_id)
                     whiteboard_id = new_whiteboard_id
 
@@ -141,6 +141,7 @@ def send_whiteboard_state_to_client(client_socket, whiteboard_id):
     whiteboard = whiteboards[whiteboard_id]
     whiteboard.save_picture_path(file_path)
 
+    send_to_client(client_socket, ("img"))
     with open(file_path, "rb") as file:
         # Read the image file as binary data
         image_data = file.read()
@@ -149,8 +150,6 @@ def send_whiteboard_state_to_client(client_socket, whiteboard_id):
         # Send the image data to the client
         client_socket.sendall(image_data)
 
-    # Remove the temporary file
-    #os.remove(temp_file_path)
 
 
 def start_server():
