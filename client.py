@@ -138,7 +138,7 @@ class ClientApp(WhiteboardApp):
             pygame.display.update()
             for event in events:
                 if event.type == pygame.QUIT:
-                    recv_thread.join()
+                    recv_thread.join(1)
                     pygame.quit()
                     sys.exit()
                 elif event.type == pygame.MOUSEBUTTONDOWN:
