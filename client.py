@@ -31,18 +31,17 @@ class ClientApp(WhiteboardApp):
             self.run()
         # Initialize the whiteboard
 
-
     def receive_image(self):
         # Receive the image size from the server
         image_size_data = self.client_socket.recv(4)
         image_size = int.from_bytes(image_size_data, byteorder="big")
         # Receive the image data from the server
         image_data = self.client_socket.recv(image_size)
+        print(image_data)
+        print("AAAAAAAAAAAAA")
         return image_data
 
     def receive_messages(self):
-        getting_whiteboard_state = True
-
         while True:
             try:
                 print("rcving")
@@ -51,12 +50,11 @@ class ClientApp(WhiteboardApp):
                 print("a")
                 if data:
                     message = pickle.loads(data)
+                    print(message)
                     if message[0] == 'drawing':
                         self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
-
                     if message[0] == 'img':
-                        image = self.receive_image()
-                        self.initialize_whiteboard_with_image(image)
+                        self.initialize_whiteboard_with_image(self.receive_image())
 
                     print(f"Received message from server: {message}")
             except Exception as e:
@@ -114,25 +112,22 @@ class ClientApp(WhiteboardApp):
         while True:
             message = self.receive_message()
             if message:
-                if message[0] == False:  # false if cant join
+                if not message[0]:  # false if cant join
                     self.popup_notice("whiteboard doesnt exist")
                     self.create_or_join()
                 else:
                     self.ID = message[1]
                     break
+        print(message[1])
 
-        try:
-            while True:
-                data = self.receive_message()
-                if data:
-                    if data[0] == "img":
-                        break
-        except Exception as e:
-            print(e)
-        self.receive_image()
+
 
         print(self.ID)
         self.initialize(True, self.ID)
+        self.draw_toolbar()
+        self.draw_bottom_toolbar()
+        print(self.screen)
+        self.send_action("img")
 
         recv_thread = threading.Thread(target=self.receive_messages)
         recv_thread.start()
@@ -143,6 +138,7 @@ class ClientApp(WhiteboardApp):
             pygame.display.update()
             for event in events:
                 if event.type == pygame.QUIT:
+                    recv_thread.join()
                     pygame.quit()
                     sys.exit()
                 elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -321,25 +317,38 @@ class ClientApp(WhiteboardApp):
         root.wait_window(dialog)
 
     def popup_notice(self, message):
-        # Create a Tkinter window
+        """
+        Displays a popup notification with the given message.
+
+        Args:
+            message (str): The message to display in the popup.
+        """
+
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
-        # Create a dialog window
-        dialog = tk.Toplevel(root)
-        dialog.title("Notice")
-        dialog.geometry("300x100")
+        # Create a popup window
+        popup = tk.Toplevel(root)
+        popup.title("Notification")
 
-        # Add a label to display the message
-        label = tk.Label(dialog, text=message, fg="red")
-        label.pack()
+        # Set window size and background color
+        popup.geometry("300x150")
+        popup.configure(bg="#f5f5f5")
 
-        # Add a close button to close the dialog window
-        close_button = tk.Button(dialog, text="Close", command=dialog.destroy)
-        close_button.pack()
+        # Frame for message and buttons (optional for better organization)
+        message_frame = tk.Frame(popup, bg="#f5f5f5")
+        message_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
-        # Wait for the dialog window to close
-        root.wait_window(dialog)
+        # Message label with increased font size and padding
+        message_label = tk.Label(message_frame, text=message, font=("Arial", 16), wraplength=250, justify="center")
+        message_label.pack(padx=20, pady=20)
+
+        # Button with adjusted padding and slightly bigger font
+        dismiss_button = tk.Button(message_frame, text="Dismiss", font=("Arial", 14), command=popup.destroy, padx=25,
+                                   pady=10)
+        dismiss_button.pack()
+
+        root.wait_window(popup)
 
 
 if __name__ == "__main__":
