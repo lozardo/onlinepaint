@@ -23,7 +23,7 @@ class ClientApp(WhiteboardApp):
         self.username = ''
         self.ID = ''
         # Connect to the server
-        server_address = ("127.0.0.1", 5555)
+        server_address = ("192.168.1.23", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
         # Get credentials from the user
@@ -31,12 +31,21 @@ class ClientApp(WhiteboardApp):
             self.run()
         # Initialize the whiteboard
 
+    def recvall(self, sock, size):
+        data = b''
+        while len(data) < size:
+            packet = sock.recv(size - len(data))
+            if not packet:
+                return None #close connection
+            data += packet
+        return data
+
     def receive_image(self):
         # Receive the image size from the server
-        image_size_data = self.client_socket.recv(4)
+        image_size_data = self.recvall(self.client_socket, 4)
         image_size = int.from_bytes(image_size_data, byteorder="big")
         # Receive the image data from the server
-        image_data = self.client_socket.recv(image_size)
+        image_data = self.recvall(self.client_socket, image_size)
         print(image_data)
         print("AAAAAAAAAAAAA")
         return image_data
@@ -45,8 +54,8 @@ class ClientApp(WhiteboardApp):
         while True:
             try:
                 print("rcving")
-                data_size = self.client_socket.recv(4)
-                data = self.client_socket.recv(int.from_bytes(data_size, byteorder='big'))
+                data_size = self.recvall(self.client_socket, 4)
+                data = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
                 print("a")
                 if data:
                     message = pickle.loads(data)
