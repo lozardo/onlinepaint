@@ -56,7 +56,7 @@ class ClientApp(WhiteboardApp):
         self.aes_key = ''
         self.iv = ''
         # Connect to the server
-        server_address = ("192.168.1.23", 5555)
+        server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
         # Get credentials from the user
@@ -77,20 +77,22 @@ class ClientApp(WhiteboardApp):
 
     # Encrypt data using AES in ECB mode
     def encrypt_data(self, data):
-        cipher = AES.new(self.aes_key, AES.MODE_ECB)  # Use ECB mode
-        ciphertext = cipher.encrypt(pad(data, AES.block_size))
-        return ciphertext
+        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.iv)
+        padded_plaintext = pad(data, AES.block_size)
+        encrypted_message = aes_cipher.encrypt(padded_plaintext)
+        return encrypted_message
 
     # Decrypt data using AES in ECB mode
-    def decrypt_data(self, ciphertext):
-        cipher = AES.new(self.aes_key, AES.MODE_ECB)  # Use ECB mode
-        decrypted_data = unpad(cipher.decrypt(ciphertext), AES.block_size)
-        return decrypted_data
+    def decrypt(self, encrypted_message):
+        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.iv)
+        decrypted_data = aes_cipher.decrypt(encrypted_message)
+        plaintext = unpad(decrypted_data, AES.block_size)
+        return plaintext
 
-    def receive_encrypted_message(self, sock):
-        data_size = self.recvall(sock, 4)
-        encrypted_data = self.recvall(sock, int.from_bytes(data_size, byteorder='big'))
-        decrypted_data = self.decrypt_data(encrypted_data)
+    def receive_encrypted_message(self,):
+        data_size = self.recvall(self.client_socket, 4)
+        encrypted_data = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
+        decrypted_data = self.decrypt(encrypted_data)
         return decrypted_data
 
     def receive_messages(self):
@@ -185,7 +187,7 @@ class ClientApp(WhiteboardApp):
 
         print(self.aes_key)
 
-        while self.get_credentials():
+        while not self.get_credentials():
             pass
         self.create_or_join()
         while True:
