@@ -7,13 +7,15 @@ from tkinter.ttk import *
 from tkinter import simpledialog
 import pygame_widgets
 import rsa
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
 
 from white_lib import WhiteboardApp
 import pickle
 import pygame
 import sys
 import threading
-from Crypto.Cipher import AES
+from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Util.Padding import pad, unpad
 # import pygame_textinput
 from pygame_widgets.slider import Slider
@@ -26,7 +28,15 @@ def generate_aes_key():
 
 # Encrypt AES key using RSA public key
 def encrypt_aes_key(aes_key, rsa_public_key):
-    encrypted_aes_key = rsa.encrypt(aes_key, rsa_public_key)
+    # Create an RSA public key object from the provided key bytes
+    rsa_key = RSA.import_key(rsa_public_key)
+
+    # Create an RSA cipher object for encryption
+    rsa_cipher = PKCS1_OAEP.new(rsa_key)
+
+    # Encrypt the AES key using the RSA public key
+    encrypted_aes_key = rsa_cipher.encrypt(aes_key)
+
     return encrypted_aes_key
 
 # Decrypt AES key using RSA private key
@@ -43,15 +53,18 @@ class ClientApp(WhiteboardApp):
         self.username = ''
         self.ID = ''
         self.server_public_key = None
-        self.aes_key
+        self.aes_key = ''
+        self.iv = ''
         # Connect to the server
         server_address = ("192.168.1.23", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
         # Get credentials from the user
-        if self.get_credentials():
-            self.run()
+        self.run()
+
+
         # Initialize the whiteboard
+
 
     def recvall(self, sock, size):
         data = b''
@@ -74,7 +87,7 @@ class ClientApp(WhiteboardApp):
         decrypted_data = unpad(cipher.decrypt(ciphertext), AES.block_size)
         return decrypted_data
 
-    def recv_encrypted_message(self, sock):
+    def receive_encrypted_message(self, sock):
         data_size = self.recvall(sock, 4)
         encrypted_data = self.recvall(sock, int.from_bytes(data_size, byteorder='big'))
         decrypted_data = self.decrypt_data(encrypted_data)
@@ -115,7 +128,7 @@ class ClientApp(WhiteboardApp):
         try:
             data_size = self.recvall(self.client_socket, 4)
             server_public_key_pem = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
-            self.server_public_key = rsa.PublicKey.load_pkcs1(server_public_key_pem.encode('utf8'))
+            self.server_public_key = server_public_key_pem
             print("Received server's public key")
         except Exception as e:
             print(f"Error receiving server's public key: {e}")
@@ -159,9 +172,21 @@ class ClientApp(WhiteboardApp):
     def run(self):
         self.receive_server_public_key()
         print(self.server_public_key)
-        self.aes_key = generate_aes_key()
-        enc_aes_key = encrypt_aes_key(self.aes_key,self.server_public_key)
+        print("a")
+        self.aes_key = get_random_bytes(32)
+        self.iv = get_random_bytes(16)
 
+        cipher = PKCS1_OAEP.new(RSA.import_key(self.server_public_key))
+        encrypted_aes_key = cipher.encrypt(self.aes_key)
+        encrypted_iv = cipher.encrypt(self.iv)
+        aes_info = (encrypted_aes_key, encrypted_iv)
+        message = pickle.dumps(aes_info)
+        self.client_socket.sendall(len(message).to_bytes(4, byteorder="big") + message)
+
+        print(self.aes_key)
+
+        while self.get_credentials():
+            pass
         self.create_or_join()
         while True:
             message = self.receive_message()
