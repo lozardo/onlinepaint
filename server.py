@@ -8,7 +8,7 @@ import pickle
 import random
 
 import pygame
-from Crypto.Util.Padding import unpad
+from Crypto.Util.Padding import unpad, pad
 
 import white_lib
 
@@ -19,8 +19,6 @@ connected_clients = {}  # Dictionary to store connected clients for each whitebo
 lock = threading.Lock()
 private_key = ''
 public_key = ''
-aes_key = ''
-iv = ''
 
 def recvall(sock, size):
     data = b''
@@ -54,26 +52,30 @@ def send_public_key(client_socket):
 
 
 def decrypt_aes_key(encrypted_aes_key, encrypted_iv):
-    global aes_key
-    global iv
     cipher = PKCS1_OAEP.new(RSA.import_key(private_key))
     aes_key = cipher.decrypt(encrypted_aes_key)
     iv = cipher.decrypt(encrypted_iv)
+    aes_info = (aes_key, iv)
+    return aes_info
 
 
-
-def decrypt_data(ciphertext):
-    cipher = AES.new(aes_key, AES.MODE_ECB)  # Use ECB mode
-    decrypted_data = unpad(cipher.decrypt(ciphertext), AES.block_size)
-    return decrypted_data
-
-
-def receive_encrypted_message(sock):
+def receive_encrypted_message(sock, aes_info):
     data_size = recvall(sock, 4)
     encrypted_data = recvall(sock, int.from_bytes(data_size, byteorder='big'))
-    decrypted_data = decrypt_data(encrypted_data)
-    return decrypted_data
 
+    aes_cipher = AES.new(aes_info[0], AES.MODE_CBC, aes_info[1])
+    decrypted_data = aes_cipher.decrypt(encrypted_data)
+    plaintext = unpad(decrypted_data, AES.block_size)
+
+    return plaintext
+
+
+def encrypt(aes_info, data):
+    print(aes_info)
+    aes_cipher = AES.new(aes_info[0], AES.MODE_CBC, aes_info[1])
+    padded_plaintext = pad(data, AES.block_size)
+    encrypted_message = aes_cipher.encrypt(padded_plaintext)
+    return encrypted_message
 
 def generate_unique_whiteboard_id():
     # Generate a random alphanumeric ID of length 6
@@ -85,19 +87,21 @@ def generate_unique_whiteboard_id():
             return new_id
 
 
-def send_to_all_clients(message, whiteboard_id):
+def send_to_all_clients(aes_info, message, whiteboard_id):
     with lock:
         for client_socket, client_addr in connected_clients[whiteboard_id]:
-            try:
-                print(f"{client_addr}")
-                send_to_client(client_socket, message)
-            except Exception as e:
-                print(f"Error sending message to {client_addr}: {e}")
+            #try:
+            print(f"{client_addr}")
+            send_to_client(client_socket, aes_info, message)
+            #except Exception as e:
+            #    print(f"Error sending message to {client_addr}: {e}")
                 #client_socket.sendall(pickle.dumps(message))
 
-def send_to_client(client_socket, message):
+
+def send_to_client(client_socket, aes_info, message):
     pickled_message = pickle.dumps(message)
-    client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big") + pickled_message)
+    encrypted_message = encrypt(aes_info, pickled_message)
+    client_socket.sendall(len(encrypted_message).to_bytes(4, byteorder="big") + encrypted_message)
 
 
 def handle_client(client_socket, addr):
@@ -105,16 +109,16 @@ def handle_client(client_socket, addr):
 
     data_size = recvall(client_socket, 4)
     data = recvall(client_socket, int.from_bytes(data_size, byteorder='big'))
-    aes_info = pickle.loads(data)
-    decrypt_aes_key(aes_info[0], aes_info[1])
-    print(aes_key)
+    enc_aes_info = pickle.loads(data)
+    aes_info = decrypt_aes_key(enc_aes_info[0], enc_aes_info[1])
+    print(aes_info)
     print('a')
     username = ""
     client_stuff = (client_socket, addr)
     whiteboard_ids = set()
     try:
         while True:
-            data = receive_encrypted_message(client_socket)
+            data = receive_encrypted_message(client_socket, aes_info)
             if data:
                 message = pickle.loads(data)
                 print(f"{addr}: {message}")
@@ -123,7 +127,7 @@ def handle_client(client_socket, addr):
                 if message_type == 'sign':
                     print("sign")
                     register_result = register_client(message[1])
-                    send_to_client(client_socket,(register_result))
+                    send_to_client(client_socket, aes_info, (register_result, ''))
                     if register_result:
                         username = message[1][0]
                         break
@@ -131,15 +135,14 @@ def handle_client(client_socket, addr):
                 if message_type == 'log':
                     print("log")
                     register_result = authenticate_client(message[1])
-                    send_to_client(client_socket,(register_result))
+                    send_to_client(client_socket, aes_info, (register_result, ''))
                     if register_result:
                         username = message[1][0]
                         #whiteboard_ids = get_user_whiteboard_ids(username)
                         break
 
         while True:
-            data_size = client_socket.recv(4)
-            data = client_socket.recv(int.from_bytes(data_size, byteorder='big'))
+            data = receive_encrypted_message(client_socket, aes_info)
             if data:
                 message = pickle.loads(data)
                 print(f"{addr}: {message}")
@@ -150,7 +153,7 @@ def handle_client(client_socket, addr):
 
                     if not whiteboard_exists_in_db(whiteboard_id):
                         # return false for not existing
-                        send_to_client(client_socket, (False, -1))
+                        send_to_client(client_socket, aes_info, (False, -1))
 
                     else:
                         if whiteboard_id not in whiteboards:
@@ -170,7 +173,7 @@ def handle_client(client_socket, addr):
                                 print(e)
                                 connected_clients[whiteboard_id] = [client_stuff]
 
-                        send_to_client(client_socket, (True, whiteboard_id))
+                        send_to_client(client_socket, aes_info, (True, whiteboard_id))
 
                 elif message_type == "create":
                     # Generate a unique whiteboard ID
@@ -182,7 +185,7 @@ def handle_client(client_socket, addr):
                     create_whiteboard(new_whiteboard_id, username)
                     # Send the new whiteboard ID to the client
                     print("sending whiteboard ID")
-                    send_to_client(client_socket, (True, new_whiteboard_id))
+                    send_to_client(client_socket, aes_info, (True, new_whiteboard_id))
                     print("sent")
                     # Join the user to the newly created whiteboard
                     connected_clients[new_whiteboard_id] = [client_stuff]
@@ -194,10 +197,10 @@ def handle_client(client_socket, addr):
                     broadcast_message = ("drawing", message[1])
                     whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
 
-                    send_to_all_clients(broadcast_message, whiteboard_id)
+                    send_to_all_clients(aes_info, broadcast_message, whiteboard_id)
 
                 elif message_type == "img":
-                    send_whiteboard_state_to_client(client_socket, whiteboard_id)
+                    send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id)
 
     except Exception as e:
         print(e)
@@ -209,29 +212,31 @@ def handle_client(client_socket, addr):
             remove_user_whiteboard_id(username, whiteboard_id)
         client_socket.close()
 
-def send_whiteboard_state_to_client(client_socket, whiteboard_id):
+def send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id):
     file_path = f"whiteboard_{whiteboard_id}.bmp"
 
     # Save the whiteboard image
     whiteboard = whiteboards[whiteboard_id]
     whiteboard.save_picture_path(file_path)
 
-    send_to_client(client_socket, ("img", ''))
+    send_to_client(client_socket, aes_info, ("img", ''))
     print("ready")
     with open(file_path, "rb") as file:
         # Read the image file as binary data
         image_data = file.read()
+        enc_img = encrypt(aes_info, image_data)
+
         # Send the image size to the client
-        client_socket.sendall(len(image_data).to_bytes(4, byteorder="big"))
+        client_socket.sendall(len(enc_img).to_bytes(4, byteorder="big"))
         # Send the image data to the client
-        client_socket.sendall(image_data)
+        client_socket.sendall(enc_img)
         print("sent")
 
 
 
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("192.168.1.23", 5555))
+    server.bind(("127.0.0.1", 5555))
     server.listen(5)
     print("Server listening on port 5040")
 
