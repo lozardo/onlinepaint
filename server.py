@@ -1,409 +1,386 @@
 import os
 import socket
+import sqlite3
+import string
 import struct
-from tkinter import ttk
-import tkinter as tk
-from tkinter.ttk import *
-from tkinter import simpledialog
-import pygame_widgets
-import rsa
-
-from white_lib import WhiteboardApp
-import pickle
-import pygame
-import sys
 import threading
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
-# import pygame_textinput
-from pygame_widgets.slider import Slider
-from pygame_widgets.button import Button
+import pickle
+import random
+
+import pygame
+from Crypto.Util.Padding import unpad
+
+import white_lib
+
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP, AES
+
+connected_clients = {}  # Dictionary to store connected clients for each whiteboard
+lock = threading.Lock()
+private_key = ''
+public_key = ''
+aes_key = ''
+iv = ''
+
+def recvall(sock, size):
+    data = b''
+    while len(data) < size:
+        packet = sock.recv(size - len(data))
+        if not packet:
+            return None  # close connection
+        data += packet
+    return data
 
 
-# Generate AES key
-def generate_aes_key():
-    return os.urandom(32)  # 256-bit key for AES-256
+def generate_rsa_key_pair():
+    # Generate RSA key pair
+    global public_key
+    global private_key
+    key = RSA.generate(2048)
 
-# Encrypt AES key using RSA public key
-def encrypt_aes_key(aes_key, rsa_public_key):
-    encrypted_aes_key = rsa.encrypt(aes_key, rsa_public_key)
-    return encrypted_aes_key
+    # Get the private key
+    private_key = key.export_key()
 
-# Decrypt AES key using RSA private key
-def decrypt_aes_key(encrypted_aes_key, rsa_private_key):
-    decrypted_aes_key = rsa.decrypt(encrypted_aes_key, rsa_private_key)
-    return decrypted_aes_key
+    # Get the public key
+    public_key = key.publickey().export_key()
+
+    return private_key, public_key
 
 
+def send_public_key(client_socket):
+    # Generate RSA key pair
+    client_socket.sendall(len(public_key).to_bytes(4, byteorder='big'))  # Send size of public key
+    client_socket.sendall(public_key)
 
-class ClientApp(WhiteboardApp):
-    def __init__(self):
-        # Initialize pygame
-        pygame.init()
-        self.username = ''
-        self.ID = ''
-        self.server_public_key = None
-        self.aes_key
-        # Connect to the server
-        server_address = ("192.168.1.23", 5555)
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect(server_address)
-        # Get credentials from the user
-        if self.get_credentials():
-            self.run()
-        # Initialize the whiteboard
 
-    def recvall(self, sock, size):
-        data = b''
-        while len(data) < size:
-            packet = sock.recv(size - len(data))
-            if not packet:
-                return None #close connection
-            data += packet
-        return data
+def decrypt_aes_key(encrypted_aes_key, encrypted_iv):
+    global aes_key
+    global iv
+    cipher = PKCS1_OAEP.new(RSA.import_key(private_key))
+    aes_key = cipher.decrypt(encrypted_aes_key)
+    iv = cipher.decrypt(encrypted_iv)
 
-    # Encrypt data using AES in ECB mode
-    def encrypt_data(self, data):
-        cipher = AES.new(self.aes_key, AES.MODE_ECB)  # Use ECB mode
-        ciphertext = cipher.encrypt(pad(data, AES.block_size))
-        return ciphertext
 
-    # Decrypt data using AES in ECB mode
-    def decrypt_data(self, ciphertext):
-        cipher = AES.new(self.aes_key, AES.MODE_ECB)  # Use ECB mode
-        decrypted_data = unpad(cipher.decrypt(ciphertext), AES.block_size)
-        return decrypted_data
 
-    def recv_encrypted_message(self, sock):
-        data_size = self.recvall(sock, 4)
-        encrypted_data = self.recvall(sock, int.from_bytes(data_size, byteorder='big'))
-        decrypted_data = self.decrypt_data(encrypted_data)
-        return decrypted_data
+def decrypt_data(ciphertext):
+    cipher = AES.new(aes_key, AES.MODE_ECB)  # Use ECB mode
+    decrypted_data = unpad(cipher.decrypt(ciphertext), AES.block_size)
+    return decrypted_data
 
-    def receive_messages(self):
-        while True:
+
+def receive_encrypted_message(sock):
+    data_size = recvall(sock, 4)
+    encrypted_data = recvall(sock, int.from_bytes(data_size, byteorder='big'))
+    decrypted_data = decrypt_data(encrypted_data)
+    return decrypted_data
+
+
+def generate_unique_whiteboard_id():
+    # Generate a random alphanumeric ID of length 6
+    id_length = 6
+    while True:
+        new_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=id_length))
+        # Check if the ID already exists in the database
+        if not whiteboard_exists_in_db(new_id):
+            return new_id
+
+
+def send_to_all_clients(message, whiteboard_id):
+    with lock:
+        for client_socket, client_addr in connected_clients[whiteboard_id]:
             try:
-                print("rcving")
-                data = self.receive_encrypted_message()
-                print("a")
-                if data:
-                    message = pickle.loads(data)
-                    print(message)
-                    if message[0] == 'drawing':
-                        self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
-                    if message[0] == 'img':
-                        image_data = self.receive_encrypted_message()
-                        print(image_data)
-                        self.initialize_whiteboard_with_image(image_data)
-
-                    print(f"Received message from server: {message}")
+                print(f"{client_addr}")
+                send_to_client(client_socket, message)
             except Exception as e:
-                print(f"Error receiving data from server: {e}")
+                print(f"Error sending message to {client_addr}: {e}")
+                #client_socket.sendall(pickle.dumps(message))
 
-    def receive_message(self):
-        try:
-            print("rcving 1")
-            data = self.receive_encrypted_message()
+def send_to_client(client_socket, message):
+    pickled_message = pickle.dumps(message)
+    client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big") + pickled_message)
+
+
+def handle_client(client_socket, addr):
+    send_public_key(client_socket)
+
+    data_size = recvall(client_socket, 4)
+    data = recvall(client_socket, int.from_bytes(data_size, byteorder='big'))
+    aes_info = pickle.loads(data)
+    decrypt_aes_key(aes_info[0], aes_info[1])
+    print(aes_key)
+    print('a')
+    username = ""
+    client_stuff = (client_socket, addr)
+    whiteboard_ids = set()
+    try:
+        while True:
+            data = receive_encrypted_message(client_socket)
             if data:
                 message = pickle.loads(data)
-                print(f"Received message from server: {message}")
-                return message
-        except Exception as e:
-            print(f"Error receiving data from server: {e}")
+                print(f"{addr}: {message}")
+                message_type = message[0]
 
-    def receive_server_public_key(self):
-        try:
-            data_size = self.recvall(self.client_socket, 4)
-            server_public_key_pem = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
-            self.server_public_key = rsa.PublicKey.load_pkcs1(server_public_key_pem.encode('utf8'))
-            print("Received server's public key")
-        except Exception as e:
-            print(f"Error receiving server's public key: {e}")
+                if message_type == 'sign':
+                    print("sign")
+                    register_result = register_client(message[1])
+                    send_to_client(client_socket,(register_result))
+                    if register_result:
+                        username = message[1][0]
+                        break
 
-    def initialize_whiteboard_with_image(self, image_data):
-        # Create a temporary file to save the received whiteboard image
-        temp_file_path = "temp_received_whiteboard.png"
-        # Write the image data to the temporary file
-        with open(temp_file_path, "wb") as file:
-            file.write(image_data)
-        # Load the image and set it as the background
-        self.set_image(temp_file_path)
-        # Remove the temporary file
-        pygame.time.wait(1000)  # Wait for 1 second to ensure the file is closed
-        pygame.display.flip()
-        os.remove(temp_file_path)
-
-    def update_image_with_chunk(self, chunk):
-        # Assuming self.image is a pygame.Surface representing your whiteboard image
-        if not hasattr(self, 'image'):
-            # Load the initial image when it's received
-            self.image = pygame.image.load(chunk)
-        else:
-            # Update the image with additional chunks
-            self.image.blit(pygame.image.load(chunk), (0, 0))
-        # Redraw the entire screen with the updated image
-        self.screen.fill((255, 255, 255))
-        self.screen.blit(self.image, (0, 0))
-        pygame.display.flip()
-
-    def send_action(self, action_type, data=''):
-        action = (action_type, data)
-        try:
-            encrypted_message = self.encrypt_data(pickle.dumps(action))
-            self.client_socket.sendall(len(encrypted_message).to_bytes(4, byteorder="big") + encrypted_message)
-
-        except:
-            print(f"Error sending data to server")
-
-
-    def run(self):
-        self.receive_server_public_key()
-        print(self.server_public_key)
-        self.aes_key = generate_aes_key()
-        enc_aes_key = encrypt_aes_key(self.aes_key,self.server_public_key)
-
-        self.create_or_join()
-        while True:
-            message = self.receive_message()
-            if message:
-                if not message[0]:  # false if cant join
-                    self.popup_notice("whiteboard doesnt exist")
-                    self.create_or_join()
-                else:
-                    self.ID = message[1]
-                    break
-        print(message[1])
-
-
-
-        print(self.ID)
-        self.initialize(True, self.ID)
-        self.draw_toolbar()
-        self.draw_bottom_toolbar()
-        print(self.screen)
-        self.send_action("img")
-
-        recv_thread = threading.Thread(target=self.receive_messages)
-        recv_thread.start()
+                if message_type == 'log':
+                    print("log")
+                    register_result = authenticate_client(message[1])
+                    send_to_client(client_socket,(register_result))
+                    if register_result:
+                        username = message[1][0]
+                        #whiteboard_ids = get_user_whiteboard_ids(username)
+                        break
 
         while True:
-            events = pygame.event.get()
-            pygame_widgets.update(events)
-            pygame.display.update()
-            for event in events:
-                if event.type == pygame.QUIT:
-                    recv_thread.join(1)
-                    pygame.quit()
-                    sys.exit()
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:
-                        # Check if clicked on a color button
-                        for i, color_button in enumerate(self.color_buttons):
-                            color_button.listen(event)  # Use listen method
-                            if color_button.clicked:
-                                self.change_color(i)
-                                break
+            data_size = client_socket.recv(4)
+            data = client_socket.recv(int.from_bytes(data_size, byteorder='big'))
+            if data:
+                message = pickle.loads(data)
+                print(f"{addr}: {message}")
+                message_type = message[0]
+
+                if message_type == "join":
+                    whiteboard_id = message[1]
+
+                    if not whiteboard_exists_in_db(whiteboard_id):
+                        # return false for not existing
+                        send_to_client(client_socket, (False, -1))
+
+                    else:
+                        if whiteboard_id not in whiteboards:
+                            print("redo")
+                            whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
+                            whiteboards[whiteboard_id].initialize(False)
+                            whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
+
+
                         else:
-                            self.drawing = True
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    self.drawing = False
-                    self.points = []
-                elif event.type == pygame.MOUSEMOTION:
-                    if self.drawing and event.pos[1] > self.toolbar_height:
-                        if len(self.points) > 1:
-                            self.points = [self.points[-1], event.pos]
-                        else:
-                            self.points = [event.pos]
-                # Handle slider events
-                if self.line_width != int(self.width_slider.getValue()):
-                    self.line_width = int(self.width_slider.getValue())
-                    self.send_action("width", int(self.width_slider.getValue()))
-                # Handle button events
-                self.save_button.listen(event)
-            self.draw_toolbar()
-            self.draw_bottom_toolbar()
-            if len(self.points) > 0:
-                self.send_action("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
-                print(self.points)
-                # self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
-                self.last_circle_position = self.points[-1]
-            if not self.drawing:
-                self.last_circle_position = None
-            pygame.display.flip()
-            self.clock.tick(60)
+                            try:
+                                connected_clients[whiteboard_id].append(client_stuff)
+                                # Update user's record in the database to include the newly joined whiteboard ID
+                                update_user_whiteboard_ids(username, whiteboard_id)
 
-    def get_credentials(self):
-        # Get credentials from the user and send them to the server
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
-        self.return_input = False
+                            except Exception as e:
+                                print(e)
+                                connected_clients[whiteboard_id] = [client_stuff]
 
-        # Create a login dialog
-        dialog = tk.Toplevel(root)
-        dialog.title("Login")
-        dialog.geometry("600x400")  # Set the window size
+                        send_to_client(client_socket, (True, whiteboard_id))
 
-        # Increase font size for better readability
-        default_font = ("Arial", 14)
+                elif message_type == "create":
+                    # Generate a unique whiteboard ID
+                    new_whiteboard_id = generate_unique_whiteboard_id()
+                    # Create the whiteboard
+                    whiteboards[new_whiteboard_id] = white_lib.WhiteboardApp()
+                    whiteboards[new_whiteboard_id].initialize(False)
+                    # Add the whiteboard to the database
+                    create_whiteboard(new_whiteboard_id, username)
+                    # Send the new whiteboard ID to the client
+                    print("sending whiteboard ID")
+                    send_to_client(client_socket, (True, new_whiteboard_id))
+                    print("sent")
+                    # Join the user to the newly created whiteboard
+                    connected_clients[new_whiteboard_id] = [client_stuff]
+                    update_user_whiteboard_ids(username, new_whiteboard_id)
+                    whiteboard_id = new_whiteboard_id
 
-        # Background color
-        dialog.configure(bg="#f5f5f5")
+                elif message_type == "draw":
+                    # Broadcast drawing updates to other clients
+                    broadcast_message = ("drawing", message[1])
+                    whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
 
-        # Grid layout with spacing
-        dialog.grid_columnconfigure(0, weight=1)
-        dialog.grid_columnconfigure(1, weight=2)
-        dialog.grid_rowconfigure(0, weight=1)
-        dialog.grid_rowconfigure(1, weight=1)
-        dialog.grid_rowconfigure(2, weight=1)
-        dialog.grid_rowconfigure(3, weight=1)
+                    send_to_all_clients(broadcast_message, whiteboard_id)
 
-        # Labels
-        username_label = tk.Label(dialog, text="Username:", font=default_font)
-        username_label.grid(row=0, column=0, sticky="e", padx=10, pady=10)
-        password_label = tk.Label(dialog, text="Password:", font=default_font)
-        password_label.grid(row=1, column=0, sticky="e", padx=10, pady=10)
+                elif message_type == "img":
+                    send_whiteboard_state_to_client(client_socket, whiteboard_id)
 
-        # Entries
-        username_entry = tk.Entry(dialog, font=default_font)
-        username_entry.grid(row=0, column=1, padx=10, pady=5, sticky="w")
-        password_entry = tk.Entry(dialog, show="*", font=default_font)
-        password_entry.grid(row=1, column=1, padx=10, pady=5, sticky="w")
+    except Exception as e:
+        print(e)
+        print(f"{username} left board {whiteboard_id}")
+        for whiteboard_id in whiteboard_ids:
+            whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
+            connected_clients[whiteboard_id].remove((client_socket, addr))
+            # Remove the whiteboard ID from the user's record when they leave
+            remove_user_whiteboard_id(username, whiteboard_id)
+        client_socket.close()
 
-        # Password requirements label (red for emphasis)
-        password_req_label = tk.Label(dialog, text="Password must be at least 6 characters", fg="red",
-                                      font=default_font)
-        password_req_label.grid(row=2, column=1, padx=0, pady=5, sticky="w")
+def send_whiteboard_state_to_client(client_socket, whiteboard_id):
+    file_path = f"whiteboard_{whiteboard_id}.bmp"
 
-        # Functions for login and signup
-        def login():
-            username = username_entry.get()
-            password = password_entry.get()
-            credentials = (username, password)
-            dialog.destroy()
-            self.username = credentials[0]
-            self.send_action("log", credentials)
-            message = self.receive_message()
-            if message == False:
-                self.popup_notice("Username or password incorrect")
-            self.return_input = message
+    # Save the whiteboard image
+    whiteboard = whiteboards[whiteboard_id]
+    whiteboard.save_picture_path(file_path)
 
-        def signup():
-            username = username_entry.get()
-            password = password_entry.get()
-            if len(password) < 6:
-                password_req_label.config(text="Password must be at least 6 characters", fg="red")
-                return
-            credentials = (username, password)
-            dialog.destroy()
-            self.username = credentials[0]
-            self.send_action("sign", credentials)
-            message = self.receive_message()
-            if message == False:
-                self.popup_notice("Username already exists or password is too short")
-            self.return_input = message
+    send_to_client(client_socket, ("img", ''))
+    print("ready")
+    with open(file_path, "rb") as file:
+        # Read the image file as binary data
+        image_data = file.read()
+        # Send the image size to the client
+        client_socket.sendall(len(image_data).to_bytes(4, byteorder="big"))
+        # Send the image data to the client
+        client_socket.sendall(image_data)
+        print("sent")
 
-        # Buttons with adjusted padding
-        login_button = tk.Button(dialog, text="Login", command=login, font=default_font, padx=20, pady=10)
-        signup_button = tk.Button(dialog, text="Sign Up", command=signup, font=default_font, padx=20, pady=10)
 
-        login_button.grid(row=3, column=0, sticky="e", padx=40, pady=10)
-        signup_button.grid(row=3, column=1, sticky="w", padx=60, pady=10)
 
-        root.wait_window(dialog)
-        return self.return_input  # False if return input exists, otherwise True
+def start_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("192.168.1.23", 5555))
+    server.listen(5)
+    print("Server listening on port 5040")
 
-    def create_or_join(self):
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
+    private_key, public_key = generate_rsa_key_pair()
+    print(private_key.decode())
+    print(public_key.decode())
 
-        # Create a dialog
-        dialog = tk.Toplevel(root)
-        dialog.title("Whiteboard Setup")
-        dialog.geometry("600x800")  # Set the window size
+    while True:
+        client, addr = server.accept()
+        print(f"Accepted connection from {addr}")
 
-        # Increase font sizes for better readability
-        default_font = ("Arial", 16)
-        label_font = (default_font[0], default_font[1] + 2)  # Slightly larger for label
+        client_handler = threading.Thread(target=handle_client, args=(client, addr))
+        client_handler.start()
 
-        # Background color
-        dialog.configure(bg="#f5f5f5")
 
-        # Grid layout with 2 rows and 1 column
-        dialog.grid_columnconfigure(0, weight=1)
-        dialog.grid_rowconfigure(0, weight=1)
-        dialog.grid_rowconfigure(1, weight=2)
+def update_user_whiteboard_ids(username, whiteboard_id):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT whiteboard_ids FROM users WHERE username=?", (username,))
+    user_record = cursor.fetchone()
+    if user_record:
+        whiteboard_ids = set(user_record[0].split(',')) if user_record[0] else set()
+        whiteboard_ids.add(whiteboard_id)
+        new_whiteboard_ids = ','.join(whiteboard_ids)
+        cursor.execute("UPDATE users SET whiteboard_ids=? WHERE username=?", (new_whiteboard_ids, username))
+        conn.commit()
+    conn.close()
 
-        # Label (optional)
-        label = tk.Label(dialog, text="Whiteboard ID:", font=label_font)
-        label.grid(row=0, column=0, pady=20)  # Place label in row 0
 
-        # Textbox for input (limited to 6 characters)
-        whiteboard_id_entry = tk.Entry(dialog, font=("Arial", 20), width=7)
-        whiteboard_id_entry.grid(row=1, column=0, padx=20, pady=10)  # Place in row 1
+def remove_user_whiteboard_id(username, whiteboard_id):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT whiteboard_ids FROM users WHERE username=?", (username,))
+    user_record = cursor.fetchone()
+    if user_record:
+        whiteboard_ids = set(user_record[0].split(',')) if user_record[0] else set()
+        if whiteboard_id in whiteboard_ids:
+            whiteboard_ids.remove(whiteboard_id)
+            new_whiteboard_ids = ','.join(whiteboard_ids)
+            cursor.execute("UPDATE users SET whiteboard_ids=? WHERE username=?", (new_whiteboard_ids, username))
+            conn.commit()
+    conn.close()
 
-        def join_whiteboard():
-            whiteboard_id = whiteboard_id_entry.get()
-            if whiteboard_id:  # Check if any text is entered
-                dialog.destroy()
-                self.ID = whiteboard_id
-                self.send_action("join", self.ID)
-            else:
-                # Handle case where no ID is entered (optional)
-                print("Please enter a whiteboard ID.")
 
-        # Join button to the left of the textbox
-        join_button = tk.Button(dialog, text="Join Whiteboard", command=join_whiteboard, font=default_font, padx=20,
-                                pady=10)
-        join_button.grid(row=1, column=0, sticky="e", padx=20)  # Place to the right (east) in row 1
+def get_user_whiteboard_ids(username):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT whiteboard_ids FROM users WHERE username=?", (username,))
+    user_record = cursor.fetchone()
+    conn.close()
+    if user_record:
+        return set(user_record[0].split(',')) if user_record[0] else set()
+    else:
+        return set()
 
-        def create_whiteboard():
-            dialog.destroy()
-            self.send_action("create")
+def register_client(credentials):
+    # Extract username and password from credentials
+    username, password = credentials
 
-        # Create Button above the textbox and join button
-        create_button = tk.Button(dialog, text="Create New Whiteboard", command=create_whiteboard, font=default_font,
-                                  padx=20, pady=10)
-        create_button.grid(row=0, column=0, sticky="s", pady=15)  # Place at the bottom (south) of row 0
+    # Connect to the SQLite database
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
 
-        # Window Icon (optional)
-        # dialog.iconbitmap("my_icon.ico")  # Replace with your icon file path
+    # Check if the username already exists
+    cursor.execute("SELECT * FROM users WHERE username=?", (username,))
+    existing_user = cursor.fetchone()
+    print(existing_user)
 
-        root.wait_window(dialog)
+    if existing_user:
+        print(f"Username '{username}' already exists.")
+        # Inform the client that registration failed
+        conn.close()
+        return False
 
-    def popup_notice(self, message):
-        """
-        Displays a popup notification with the given message.
+    # Insert the new user into the database
+    cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+    conn.commit()
+    conn.close()
 
-        Args:
-            message (str): The message to display in the popup.
-        """
+    return True
 
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
 
-        # Create a popup window
-        popup = tk.Toplevel(root)
-        popup.title("Notification")
+def authenticate_client(credentials):
+    # Extract username and password from credentials
+    username, password = credentials
 
-        # Set window size and background color
-        popup.geometry("300x150")
-        popup.configure(bg="#f5f5f5")
+    # Connect to the SQLite database
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
 
-        # Frame for message and buttons (optional for better organization)
-        message_frame = tk.Frame(popup, bg="#f5f5f5")
-        message_frame.pack(padx=10, pady=10, fill="both", expand=True)
+    # Check if the username and password match
+    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    user = cursor.fetchone()
 
-        # Message label with increased font size and padding
-        message_label = tk.Label(message_frame, text=message, font=("Arial", 16), wraplength=250, justify="center")
-        message_label.pack(padx=20, pady=20)
+    if user:
+        print(f"Authentication successful for user '{username}'.")
+        # Inform the client that authentication was successful
+        conn.close()
+        return True
+    else:
+        print(f"Authentication failed for user '{username}'.")
+        # Inform the client that authentication failed
+        conn.close()
+        return False
 
-        # Button with adjusted padding and slightly bigger font
-        dismiss_button = tk.Button(message_frame, text="Dismiss", font=("Arial", 14), command=popup.destroy, padx=25,
-                                   pady=10)
-        dismiss_button.pack()
 
-        root.wait_window(popup)
+def create_whiteboard(whiteboard_id, creator_username):
+    conn = sqlite3.connect('whiteboards.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO whiteboards (ID, creator) VALUES (?, ?)",
+                   (whiteboard_id, creator_username))
+    conn.commit()
+    conn.close()
+
+
+def whiteboard_exists_in_db(whiteboard_id):
+    conn = sqlite3.connect('whiteboards.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT ID FROM whiteboards WHERE ID=?", (whiteboard_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
 
 
 if __name__ == "__main__":
-    app = ClientApp()
+    whiteboards = {}  # Dictionary to store instances of WhiteboardApp
+
+    # Initialize the SQLite databases
+    conn_users = sqlite3.connect('users.db')
+    cursor_users = conn_users.cursor()
+
+    # Create users table if it does not exist
+    cursor_users.execute('''CREATE TABLE IF NOT EXISTS users (
+                                username TEXT PRIMARY KEY,
+                                password TEXT,
+                                whiteboard_ids TEXT
+                            )''')
+    conn_users.commit()
+    conn_users.close()
+
+    conn_whiteboards = sqlite3.connect('whiteboards.db')
+    cursor_whiteboards = conn_whiteboards.cursor()
+
+    # Create whiteboards table if it does not exist
+    cursor_whiteboards.execute('''CREATE TABLE IF NOT EXISTS whiteboards (
+                                    ID TEXT PRIMARY KEY,
+                                    creator TEXT
+                                )''')
+    conn_whiteboards.commit()
+    conn_whiteboards.close()
+
+    start_server()
