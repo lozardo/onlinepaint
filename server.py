@@ -87,11 +87,11 @@ def generate_unique_whiteboard_id():
             return new_id
 
 
-def send_to_all_clients(aes_info, message, whiteboard_id):
+def send_to_all_clients(message, whiteboard_id):
     with lock:
-        for client_socket, client_addr in connected_clients[whiteboard_id]:
+        for client_socket, addr, username, aes_info in connected_clients[whiteboard_id]:
             #try:
-            print(f"{client_addr}")
+            print(f"{addr}")
             send_to_client(client_socket, aes_info, message)
             #except Exception as e:
             #    print(f"Error sending message to {client_addr}: {e}")
@@ -114,8 +114,6 @@ def handle_client(client_socket, addr):
     print(aes_info)
     print('a')
     username = ""
-    client_stuff = (client_socket, addr)
-    whiteboard_ids = set()
     try:
         while True:
             data = receive_encrypted_message(client_socket, aes_info)
@@ -141,6 +139,8 @@ def handle_client(client_socket, addr):
                         #whiteboard_ids = get_user_whiteboard_ids(username)
                         break
 
+        client_stuff = (client_socket, addr, username, aes_info)
+
         while True:
             data = receive_encrypted_message(client_socket, aes_info)
             if data:
@@ -162,12 +162,9 @@ def handle_client(client_socket, addr):
                             whiteboards[whiteboard_id].initialize(False)
                             whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
 
-
                         else:
                             try:
                                 connected_clients[whiteboard_id].append(client_stuff)
-                                # Update user's record in the database to include the newly joined whiteboard ID
-                                update_user_whiteboard_ids(username, whiteboard_id)
 
                             except Exception as e:
                                 print(e)
@@ -197,27 +194,29 @@ def handle_client(client_socket, addr):
                     broadcast_message = ("drawing", message[1])
                     whiteboards[whiteboard_id].draw(message[1][0], message[1][1], message[1][2], message[1][3])
 
-                    send_to_all_clients(aes_info, broadcast_message, whiteboard_id)
+                    send_to_all_clients(broadcast_message, whiteboard_id)
 
                 elif message_type == "img":
                     send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id)
+                
+                elif message_type == "save":
+                    whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
 
     except Exception as e:
         print(e)
-        print(f"{username} left board {whiteboard_id}")
-        for whiteboard_id in whiteboard_ids:
-            whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
-            connected_clients[whiteboard_id].remove((client_socket, addr))
-            # Remove the whiteboard ID from the user's record when they leave
-            remove_user_whiteboard_id(username, whiteboard_id)
+        print(f"{client_stuff} left board {whiteboard_id}")
+        whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
+        connected_clients[whiteboard_id].remove((client_socket, addr))
+        # Remove the whiteboard ID from the user's record when they leave
+        remove_user_whiteboard_id(username, whiteboard_id)
         client_socket.close()
+
 
 def send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id):
     file_path = f"whiteboard_{whiteboard_id}.bmp"
 
     # Save the whiteboard image
-    whiteboard = whiteboards[whiteboard_id]
-    whiteboard.save_picture_path(file_path)
+    whiteboards[whiteboard_id].save_picture_path(file_path)
 
     send_to_client(client_socket, aes_info, ("img", ''))
     print("ready")
@@ -231,7 +230,6 @@ def send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id):
         # Send the image data to the client
         client_socket.sendall(enc_img)
         print("sent")
-
 
 
 def start_server():
@@ -291,6 +289,7 @@ def get_user_whiteboard_ids(username):
         return set(user_record[0].split(',')) if user_record[0] else set()
     else:
         return set()
+
 
 def register_client(credentials):
     # Extract username and password from credentials
