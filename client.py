@@ -6,14 +6,44 @@ import tkinter as tk
 from tkinter.ttk import *
 from tkinter import simpledialog
 import pygame_widgets
+import rsa
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
+
 from white_lib import WhiteboardApp
 import pickle
 import pygame
 import sys
 import threading
+from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.Util.Padding import pad, unpad
 # import pygame_textinput
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
+
+
+# Generate AES key
+def generate_aes_key():
+    return os.urandom(32)  # 256-bit key for AES-256
+
+# Encrypt AES key using RSA public key
+def encrypt_aes_key(aes_key, rsa_public_key):
+    # Create an RSA public key object from the provided key bytes
+    rsa_key = RSA.import_key(rsa_public_key)
+
+    # Create an RSA cipher object for encryption
+    rsa_cipher = PKCS1_OAEP.new(rsa_key)
+
+    # Encrypt the AES key using the RSA public key
+    encrypted_aes_key = rsa_cipher.encrypt(aes_key)
+
+    return encrypted_aes_key
+
+# Decrypt AES key using RSA private key
+def decrypt_aes_key(encrypted_aes_key, rsa_private_key):
+    decrypted_aes_key = rsa.decrypt(encrypted_aes_key, rsa_private_key)
+    return decrypted_aes_key
+
 
 
 class ClientApp(WhiteboardApp):
@@ -22,14 +52,19 @@ class ClientApp(WhiteboardApp):
         pygame.init()
         self.username = ''
         self.ID = ''
+        self.server_public_key = None
+        self.aes_key = ''
+        self.iv = ''
         # Connect to the server
-        server_address = ("192.168.1.23", 5555)
+        server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
         # Get credentials from the user
-        if self.get_credentials():
-            self.run()
+        self.run()
+
+
         # Initialize the whiteboard
+
 
     def recvall(self, sock, size):
         data = b''
@@ -40,22 +75,31 @@ class ClientApp(WhiteboardApp):
             data += packet
         return data
 
-    def receive_image(self):
-        # Receive the image size from the server
-        image_size_data = self.recvall(self.client_socket, 4)
-        image_size = int.from_bytes(image_size_data, byteorder="big")
-        # Receive the image data from the server
-        image_data = self.recvall(self.client_socket, image_size)
-        print(image_data)
-        print("AAAAAAAAAAAAA")
-        return image_data
+    # Encrypt data using AES in ECB mode
+    def encrypt_data(self, data):
+        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.iv)
+        padded_plaintext = pad(data, AES.block_size)
+        encrypted_message = aes_cipher.encrypt(padded_plaintext)
+        return encrypted_message
+
+    # Decrypt data using AES in ECB mode
+    def decrypt(self, encrypted_message):
+        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.iv)
+        decrypted_data = aes_cipher.decrypt(encrypted_message)
+        plaintext = unpad(decrypted_data, AES.block_size)
+        return plaintext
+
+    def receive_encrypted_message(self,):
+        data_size = self.recvall(self.client_socket, 4)
+        encrypted_data = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
+        decrypted_data = self.decrypt(encrypted_data)
+        return decrypted_data
 
     def receive_messages(self):
         while True:
             try:
                 print("rcving")
-                data_size = self.recvall(self.client_socket, 4)
-                data = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
+                data = self.receive_encrypted_message()
                 print("a")
                 if data:
                     message = pickle.loads(data)
@@ -63,7 +107,9 @@ class ClientApp(WhiteboardApp):
                     if message[0] == 'drawing':
                         self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
                     if message[0] == 'img':
-                        self.initialize_whiteboard_with_image(self.receive_image())
+                        image_data = self.receive_encrypted_message()
+                        print(image_data)
+                        self.initialize_whiteboard_with_image(image_data)
 
                     print(f"Received message from server: {message}")
             except Exception as e:
@@ -72,14 +118,22 @@ class ClientApp(WhiteboardApp):
     def receive_message(self):
         try:
             print("rcving 1")
-            data_size = self.client_socket.recv(4)
-            data = self.client_socket.recv(int.from_bytes(data_size, byteorder='big'))
+            data = self.receive_encrypted_message()
             if data:
                 message = pickle.loads(data)
                 print(f"Received message from server: {message}")
                 return message
         except Exception as e:
             print(f"Error receiving data from server: {e}")
+
+    def receive_server_public_key(self):
+        try:
+            data_size = self.recvall(self.client_socket, 4)
+            server_public_key_pem = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
+            self.server_public_key = server_public_key_pem
+            print("Received server's public key")
+        except Exception as e:
+            print(f"Error receiving server's public key: {e}")
 
     def initialize_whiteboard_with_image(self, image_data):
         # Create a temporary file to save the received whiteboard image
@@ -110,13 +164,31 @@ class ClientApp(WhiteboardApp):
     def send_action(self, action_type, data=''):
         action = (action_type, data)
         try:
-            pickled_message = pickle.dumps(action)
-            self.client_socket.sendall(len(pickled_message).to_bytes(4, byteorder="big") + pickled_message)
+            encrypted_message = self.encrypt_data(pickle.dumps(action))
+            self.client_socket.sendall(len(encrypted_message).to_bytes(4, byteorder="big") + encrypted_message)
 
         except:
             print(f"Error sending data to server")
 
+
     def run(self):
+        self.receive_server_public_key()
+        print(self.server_public_key)
+        print("a")
+        self.aes_key = get_random_bytes(32)
+        self.iv = get_random_bytes(16)
+
+        cipher = PKCS1_OAEP.new(RSA.import_key(self.server_public_key))
+        encrypted_aes_key = cipher.encrypt(self.aes_key)
+        encrypted_iv = cipher.encrypt(self.iv)
+        aes_info = (encrypted_aes_key, encrypted_iv)
+        message = pickle.dumps(aes_info)
+        self.client_socket.sendall(len(message).to_bytes(4, byteorder="big") + message)
+
+        print(self.aes_key)
+
+        while not self.get_credentials():
+            pass
         self.create_or_join()
         while True:
             message = self.receive_message()
@@ -237,7 +309,7 @@ class ClientApp(WhiteboardApp):
             dialog.destroy()
             self.username = credentials[0]
             self.send_action("log", credentials)
-            message = self.receive_message()
+            message = self.receive_message()[0]
             if message == False:
                 self.popup_notice("Username or password incorrect")
             self.return_input = message
