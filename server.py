@@ -1,15 +1,11 @@
-import os
+
 import socket
 import sqlite3
 import string
-import struct
 import threading
 import pickle
 import random
 import bcrypt
-
-import pygame
-from Crypto.Util.Padding import unpad, pad
 
 import white_lib
 
@@ -183,8 +179,6 @@ def send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id):
 
     # Save the whiteboard image
     whiteboards[whiteboard_id].save_picture_path(file_path)
-
-    socket_help.send_message(client_socket, aes_info[0], aes_info[1], ("img", ''))
     print("ready")
     with open(file_path, "rb") as file:
         # Read the image file as binary data
