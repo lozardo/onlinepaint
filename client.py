@@ -3,7 +3,6 @@ import pickle
 import socket
 import tkinter as tk
 import pygame_widgets
-import rsa
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 
@@ -33,13 +32,6 @@ def encrypt_aes_key(aes_key, rsa_public_key):
 
     return encrypted_aes_key
 
-# Decrypt AES key using RSA private key
-def decrypt_aes_key(encrypted_aes_key, rsa_private_key):
-    decrypted_aes_key = rsa.decrypt(encrypted_aes_key, rsa_private_key)
-    return decrypted_aes_key
-
-
-
 class ClientApp(WhiteboardApp):
     def __init__(self):
         # Initialize pygame
@@ -65,10 +57,6 @@ class ClientApp(WhiteboardApp):
                 print(message)
                 if message[0] == 'drawing':
                     self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
-                if message[0] == 'img':
-                    image_data = socket_help.receive_encrypted_message(self.client_socket,self.aes_key, self.iv, False)
-                    print(image_data)
-                    self.initialize_whiteboard_with_image(image_data)
 
                     print(f"Received message from server: {message}")
             except Exception as e:
@@ -96,19 +84,6 @@ class ClientApp(WhiteboardApp):
         pygame.display.flip()
         os.remove(temp_file_path)
 
-    def update_image_with_chunk(self, chunk):
-        # Assuming self.image is a pygame.Surface representing your whiteboard image
-        if not hasattr(self, 'image'):
-            # Load the initial image when it's received
-            self.image = pygame.image.load(chunk)
-        else:
-            # Update the image with additional chunks
-            self.image.blit(pygame.image.load(chunk), (0, 0))
-        # Redraw the entire screen with the updated image
-        self.screen.fill((255, 255, 255))
-        self.screen.blit(self.image, (0, 0))
-        pygame.display.flip()
-
     def run(self):
         self.receive_server_public_key()
         print(self.server_public_key)
@@ -127,19 +102,8 @@ class ClientApp(WhiteboardApp):
 
         while not self.get_credentials():
             pass
-        self.create_or_join()
-        while True:
-            message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
-            if message:
-                if not message[0]:  # false if cant join
-                    self.popup_notice("whiteboard doesnt exist")
-                    self.create_or_join()
-                else:
-                    self.ID = message[1]
-                    break
-        print(message[1])
-
-
+        while self.ID == '':
+            self.create_or_join()
 
         print(self.ID)
         self.initialize(True, self.ID)
@@ -148,7 +112,9 @@ class ClientApp(WhiteboardApp):
         print(self.screen)
         message = ("img", '')
         socket_help.send_message(self.client_socket, self.aes_key, self.iv,message)
-
+        image_data = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv, False)
+        print(image_data)
+        self.initialize_whiteboard_with_image(image_data)
         recv_thread = threading.Thread(target=self.receive_messages)
         recv_thread.start()
 
@@ -316,6 +282,13 @@ class ClientApp(WhiteboardApp):
                 self.ID = whiteboard_id
                 message = ("join", self.ID)
                 socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+                message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+                if message[0] == False:
+                    self.popup_notice("whiteboard doesnt exist or is privated")
+                    return False
+                else:
+                    self.ID = message[1]
+                    return True
             else:
                 # Handle case where no ID is entered (optional)
                 print("Please enter a whiteboard ID.")
@@ -329,6 +302,14 @@ class ClientApp(WhiteboardApp):
             dialog.destroy()
             message = ("create", '')
             socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+            message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+            if message[0] == False:
+                self.popup_notice("problem when creating whiteboard")
+                return False
+            else:
+                print("id got")
+                self.ID = message[1]
+                return True
 
         # Create Button above the textbox and join button
         create_button = tk.Button(dialog, text="Create New Whiteboard", command=create_whiteboard, font=default_font,
