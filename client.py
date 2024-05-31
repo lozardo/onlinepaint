@@ -1,26 +1,20 @@
 import os
+import pickle
 import socket
-import struct
-from tkinter import ttk
 import tkinter as tk
-from tkinter.ttk import *
-from tkinter import simpledialog
 import pygame_widgets
 import rsa
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 
 from white_lib import WhiteboardApp
-import pickle
+
 import pygame
 import sys
 import threading
-from Crypto.Cipher import AES, PKCS1_OAEP
-from Crypto.Util.Padding import pad, unpad
-# import pygame_textinput
-from pygame_widgets.slider import Slider
-from pygame_widgets.button import Button
+from Crypto.Cipher import PKCS1_OAEP
 
+import socket_help
 
 # Generate AES key
 def generate_aes_key():
@@ -62,74 +56,28 @@ class ClientApp(WhiteboardApp):
         # Get credentials from the user
         self.run()
 
-
-        # Initialize the whiteboard
-
-
-    def recvall(self, sock, size):
-        data = b''
-        while len(data) < size:
-            packet = sock.recv(size - len(data))
-            if not packet:
-                return None #close connection
-            data += packet
-        return data
-
-    # Encrypt data using AES in ECB mode
-    def encrypt_data(self, data):
-        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.iv)
-        padded_plaintext = pad(data, AES.block_size)
-        encrypted_message = aes_cipher.encrypt(padded_plaintext)
-        return encrypted_message
-
-    # Decrypt data using AES in ECB mode
-    def decrypt(self, encrypted_message):
-        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.iv)
-        decrypted_data = aes_cipher.decrypt(encrypted_message)
-        plaintext = unpad(decrypted_data, AES.block_size)
-        return plaintext
-
-    def receive_encrypted_message(self,):
-        data_size = self.recvall(self.client_socket, 4)
-        encrypted_data = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
-        decrypted_data = self.decrypt(encrypted_data)
-        return decrypted_data
-
     def receive_messages(self):
         while True:
             try:
                 print("rcving")
-                data = self.receive_encrypted_message()
+                message = socket_help.receive_encrypted_message(self.client_socket,self.aes_key, self.iv)
                 print("a")
-                if data:
-                    message = pickle.loads(data)
-                    print(message)
-                    if message[0] == 'drawing':
-                        self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
-                    if message[0] == 'img':
-                        image_data = self.receive_encrypted_message()
-                        print(image_data)
-                        self.initialize_whiteboard_with_image(image_data)
+                print(message)
+                if message[0] == 'drawing':
+                    self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
+                if message[0] == 'img':
+                    image_data = socket_help.receive_encrypted_message(self.client_socket,self.aes_key, self.iv, False)
+                    print(image_data)
+                    self.initialize_whiteboard_with_image(image_data)
 
                     print(f"Received message from server: {message}")
             except Exception as e:
                 print(f"Error receiving data from server: {e}")
 
-    def receive_message(self):
-        try:
-            print("rcving 1")
-            data = self.receive_encrypted_message()
-            if data:
-                message = pickle.loads(data)
-                print(f"Received message from server: {message}")
-                return message
-        except Exception as e:
-            print(f"Error receiving data from server: {e}")
-
     def receive_server_public_key(self):
         try:
-            data_size = self.recvall(self.client_socket, 4)
-            server_public_key_pem = self.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
+            data_size = socket_help.recvall(self.client_socket, 4)
+            server_public_key_pem = socket_help.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
             self.server_public_key = server_public_key_pem
             print("Received server's public key")
         except Exception as e:
@@ -161,16 +109,6 @@ class ClientApp(WhiteboardApp):
         self.screen.blit(self.image, (0, 0))
         pygame.display.flip()
 
-    def send_action(self, action_type, data=''):
-        action = (action_type, data)
-        try:
-            encrypted_message = self.encrypt_data(pickle.dumps(action))
-            self.client_socket.sendall(len(encrypted_message).to_bytes(4, byteorder="big") + encrypted_message)
-
-        except:
-            print(f"Error sending data to server")
-
-
     def run(self):
         self.receive_server_public_key()
         print(self.server_public_key)
@@ -191,7 +129,7 @@ class ClientApp(WhiteboardApp):
             pass
         self.create_or_join()
         while True:
-            message = self.receive_message()
+            message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
             if message:
                 if not message[0]:  # false if cant join
                     self.popup_notice("whiteboard doesnt exist")
@@ -208,7 +146,8 @@ class ClientApp(WhiteboardApp):
         self.draw_toolbar()
         self.draw_bottom_toolbar()
         print(self.screen)
-        self.send_action("img")
+        message = ("img", '')
+        socket_help.send_message(self.client_socket, self.aes_key, self.iv,message)
 
         recv_thread = threading.Thread(target=self.receive_messages)
         recv_thread.start()
@@ -244,13 +183,13 @@ class ClientApp(WhiteboardApp):
                 # Handle slider events
                 if self.line_width != int(self.width_slider.getValue()):
                     self.line_width = int(self.width_slider.getValue())
-                    self.send_action("width", int(self.width_slider.getValue()))
                 # Handle button events
                 self.save_button.listen(event)
             self.draw_toolbar()
             self.draw_bottom_toolbar()
             if len(self.points) > 0:
-                self.send_action("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
+                message = ("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
+                socket_help.send_message(self.client_socket, self.aes_key, self.iv,message)
                 print(self.points)
                 # self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
                 self.last_circle_position = self.points[-1]
@@ -308,11 +247,12 @@ class ClientApp(WhiteboardApp):
             credentials = (username, password)
             dialog.destroy()
             self.username = credentials[0]
-            self.send_action("log", credentials)
-            message = self.receive_message()[0]
-            if message == False:
+            message = ("log", credentials)
+            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+            confirmation = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)[0]
+            if confirmation == False:
                 self.popup_notice("Username or password incorrect")
-            self.return_input = message
+            self.return_input = confirmation
 
         def signup():
             username = username_entry.get()
@@ -323,11 +263,12 @@ class ClientApp(WhiteboardApp):
             credentials = (username, password)
             dialog.destroy()
             self.username = credentials[0]
-            self.send_action("sign", credentials)
-            message = self.receive_message()
-            if message == False:
+            message = ("sign", credentials)
+            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+            confirmation = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)[0]
+            if confirmation == False:
                 self.popup_notice("Username already exists or password is too short")
-            self.return_input = message
+            self.return_input = confirmation
 
         # Buttons with adjusted padding
         login_button = tk.Button(dialog, text="Login", command=login, font=default_font, padx=20, pady=10)
@@ -373,7 +314,8 @@ class ClientApp(WhiteboardApp):
             if whiteboard_id:  # Check if any text is entered
                 dialog.destroy()
                 self.ID = whiteboard_id
-                self.send_action("join", self.ID)
+                message = ("join", self.ID)
+                socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
             else:
                 # Handle case where no ID is entered (optional)
                 print("Please enter a whiteboard ID.")
@@ -385,7 +327,8 @@ class ClientApp(WhiteboardApp):
 
         def create_whiteboard():
             dialog.destroy()
-            self.send_action("create")
+            message = ("create", '')
+            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
 
         # Create Button above the textbox and join button
         create_button = tk.Button(dialog, text="Create New Whiteboard", command=create_whiteboard, font=default_font,
