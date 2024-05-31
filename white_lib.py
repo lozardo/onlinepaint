@@ -1,9 +1,6 @@
 from tkinter import filedialog  # for saving image
 
 import pygame
-import sys
-
-import pygame_widgets
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
 import pyperclip
