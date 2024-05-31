@@ -39,7 +39,6 @@ class WhiteboardApp:
             [(128, 128, 128), (113, 113, 113)],  # Gray
             [(255, 255, 255), (240, 240, 240)]   # White
         ]
-
         self.draw_color = self.available_colors[self.line_color_index][0]
 
         self.line_width_options = [1, 4, 8, 12]
@@ -87,7 +86,6 @@ class WhiteboardApp:
         self.line_color_index = index
         if self.draw_color != self.available_colors[self.line_color_index][0]:
             self.draw_color = self.available_colors[self.line_color_index][0]
-            self.send_action("color", self.draw_color)
             print(self.draw_color)
 
     def save_picture(self):
