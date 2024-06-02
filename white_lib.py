@@ -1,12 +1,16 @@
 from tkinter import filedialog  # for saving image
-
 import pygame
+import sys
+import pygame_widgets
 from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
 import pyperclip
 
 class WhiteboardApp:
-    def initialize(self, with_head, ID = ''):
+    def initialize(self, with_head, ID=''):
+        """
+        Initializes the Pygame environment and sets up the whiteboard.
+        """
         pygame.init()
         self.id = ID
         self.width = 800
@@ -18,26 +22,27 @@ class WhiteboardApp:
             pygame.init()
             self.screen = pygame.Surface((self.width, self.height))
         self.clock = pygame.time.Clock()
-
         self.setup()
 
-
     def setup(self):
+        """
+        Sets up initial variables and UI elements like color buttons and sliders.
+        """
         self.line_color_index = 0
         self.available_colors = [
             [(0, 0, 0), (20, 20, 20)],    # Black
-            [(255, 0, 0), (240, 0, 0)],  # Red
-            [(0, 255, 0), (0, 240, 0)],  # Green
-            [(0, 0, 255), (0, 0, 240)],  # Blue
-            [(255, 255, 0), (240, 240, 0)],  # yellow
+            [(255, 0, 0), (240, 0, 0)],   # Red
+            [(0, 255, 0), (0, 240, 0)],   # Green
+            [(0, 0, 255), (0, 0, 240)],   # Blue
+            [(255, 255, 0), (240, 240, 0)],  # Yellow
             [(128, 0, 128), (113, 0, 113)],  # Purple
             [(139, 69, 19), (124, 54, 4)],   # Brown
             [(0, 128, 0), (0, 113, 0)],   # Green
             [(128, 128, 128), (113, 113, 113)],  # Gray
             [(255, 255, 255), (240, 240, 240)]   # White
         ]
-        self.draw_color = self.available_colors[self.line_color_index][0]
 
+        self.draw_color = self.available_colors[self.line_color_index][0]
         self.line_width_options = [1, 4, 8, 12]
         self.line_width_index = 0
         self.line_width = self.line_width_options[self.line_width_index]
@@ -61,8 +66,8 @@ class WhiteboardApp:
 
         # Width slider
         self.width_slider = Slider(self.screen, self.width - 200, 10, 150, 20, min=1, max=9, step=1,
-                                  initial=self.line_width_options[self.line_width_index], colour=(255, 255, 255),
-                                  handleColour=(0, 0, 0), handleRadius=10)
+                                   initial=self.line_width_options[self.line_width_index], colour=(255, 255, 255),
+                                   handleColour=(0, 0, 0), handleRadius=10)
 
         # Bottom toolbar
         self.bottom_toolbar_height = 40
@@ -70,22 +75,28 @@ class WhiteboardApp:
         # Calculate space for ID and adjust save button position
         self.save_button = Button(self.screen, self.width - 120, self.height - self.bottom_toolbar_height + 10,
                                   100, 20, text='Save', fontSize=15, margin=20, inactiveColour=(255, 255, 255),
-                                  active_color=(240, 240, 240), onClick=self.save_picture)
+                                  activeColour=(240, 240, 240), onClick=self.save_picture)
         self.ID_button = Button(self.screen, self.width - 785, self.height - self.bottom_toolbar_height + 10,
                                 100, 20, text=f"{self.id}", fontSize=15, margin=20, inactiveColour=(255, 255, 255),
-                                active_color=(240, 240, 240), onClick=lambda: pyperclip.copy(f"{self.id}"))
-
+                                activeColour=(240, 240, 240), onClick=lambda: pyperclip.copy(f"{self.id}"))
 
         pygame.draw.circle(self.screen, (255, 255, 255), (600, 500), 1000)
 
     def change_color(self, args):
+        """
+        Changes the drawing color based on user selection.
+        """
         index = args
         self.line_color_index = index
         if self.draw_color != self.available_colors[self.line_color_index][0]:
             self.draw_color = self.available_colors[self.line_color_index][0]
+            self.send_action("color", self.draw_color)
             print(self.draw_color)
 
     def save_picture(self):
+        """
+        Saves the current drawing to a specified file path using a dialog.
+        """
         file_path = filedialog.asksaveasfilename(defaultextension=".png",
                                                  filetypes=[("PNG files", "*.png"), ("All files", "*.*")])
 
@@ -97,15 +108,18 @@ class WhiteboardApp:
             pygame.image.save(captured_image, file_path)
             print(f"Picture saved to {file_path}")
 
-
     def save_picture_path(self, file_path):
-        capture_rect = pygame.Rect(0, 0, self.width,
-                                   self.height)
+        """
+        Saves the current drawing to a specified file path without a dialog.
+        """
+        capture_rect = pygame.Rect(0, 0, self.width, self.height)
         captured_image = self.screen.subsurface(capture_rect)
         pygame.image.save(captured_image, file_path)
 
-
     def draw_toolbar(self):
+        """
+        Draws the color selection toolbar.
+        """
         pygame.draw.rect(self.screen, self.toolbar_color, (0, 0, self.width, self.toolbar_height))
 
         # Draw color buttons
@@ -116,27 +130,28 @@ class WhiteboardApp:
         self.width_slider.draw()
 
     def draw_bottom_toolbar(self):
+        """
+        Draws the bottom toolbar with save and ID buttons.
+        """
         pygame.draw.rect(self.screen, self.toolbar_color,
                          (0, self.height - self.bottom_toolbar_height, self.width, self.bottom_toolbar_height))
-        # Draw save button
 
         self.ID_button.draw()
         self.save_button.draw()
 
     def draw(self, points, draw_color, line_width, last_circle_position):
+        """
+        Handles the drawing logic on the whiteboard.
+        """
         for p in points:
             pygame.draw.circle(self.screen, draw_color, p, line_width * 2)
 
         if last_circle_position is not None:
-            pygame.draw.line(self.screen, draw_color,last_circle_position, points[-1],
-                             line_width * 5)
+            pygame.draw.line(self.screen, draw_color, last_circle_position, points[-1], line_width * 5)
 
     def set_image(self, image_path):
         """
         Sets the current image to the image located at the given path.
-
-        Parameters:
-            image_path (str): The path to the image file.
         """
         try:
             self.screen.blit(pygame.image.load(image_path), (0, 0))
