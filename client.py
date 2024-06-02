@@ -15,12 +15,30 @@ from Crypto.Cipher import PKCS1_OAEP
 
 import socket_help
 
+
 # Generate AES key
 def generate_aes_key():
+    """
+    Generates a 256-bit AES key.
+
+    Returns:
+        bytes: A 256-bit AES key.
+    """
     return os.urandom(32)  # 256-bit key for AES-256
+
 
 # Encrypt AES key using RSA public key
 def encrypt_aes_key(aes_key, rsa_public_key):
+    """
+    Encrypts the AES key using the provided RSA public key.
+
+    Args:
+        aes_key (bytes): The AES key to encrypt.
+        rsa_public_key (bytes): The RSA public key in PEM format.
+
+    Returns:
+        bytes: The encrypted AES key.
+    """
     # Create an RSA public key object from the provided key bytes
     rsa_key = RSA.import_key(rsa_public_key)
 
@@ -32,8 +50,12 @@ def encrypt_aes_key(aes_key, rsa_public_key):
 
     return encrypted_aes_key
 
+
 class ClientApp(WhiteboardApp):
     def __init__(self):
+        """
+        Initializes the ClientApp, connecting to the server and starting the GUI.
+        """
         # Initialize pygame
         pygame.init()
         self.username = ''
@@ -49,10 +71,13 @@ class ClientApp(WhiteboardApp):
         self.run()
 
     def receive_messages(self):
+        """
+        Continuously receives and processes messages from the server.
+        """
         while True:
             try:
                 print("rcving")
-                message = socket_help.receive_encrypted_message(self.client_socket,self.aes_key, self.iv)
+                message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
                 print("a")
                 print(message)
                 if message[0] == 'drawing':
@@ -63,6 +88,9 @@ class ClientApp(WhiteboardApp):
                 print(f"Error receiving data from server: {e}")
 
     def receive_server_public_key(self):
+        """
+        Receives the server's public key for encryption.
+        """
         try:
             data_size = socket_help.recvall(self.client_socket, 4)
             server_public_key_pem = socket_help.recvall(self.client_socket, int.from_bytes(data_size, byteorder='big'))
@@ -72,6 +100,12 @@ class ClientApp(WhiteboardApp):
             print(f"Error receiving server's public key: {e}")
 
     def initialize_whiteboard_with_image(self, image_data):
+        """
+        Initializes the whiteboard with the provided image data.
+
+        Args:
+            image_data (bytes): The image data to initialize the whiteboard with.
+        """
         # Create a temporary file to save the received whiteboard image
         temp_file_path = "temp_received_whiteboard.png"
         # Write the image data to the temporary file
@@ -85,6 +119,9 @@ class ClientApp(WhiteboardApp):
         os.remove(temp_file_path)
 
     def run(self):
+        """
+        Runs the main client application, including user authentication and drawing functionality.
+        """
         self.receive_server_public_key()
         print(self.server_public_key)
         print("a")
@@ -111,7 +148,7 @@ class ClientApp(WhiteboardApp):
         self.draw_bottom_toolbar()
         print(self.screen)
         message = ("img", '')
-        socket_help.send_message(self.client_socket, self.aes_key, self.iv,message)
+        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
         image_data = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv, False)
         print(image_data)
         self.initialize_whiteboard_with_image(image_data)
@@ -155,7 +192,7 @@ class ClientApp(WhiteboardApp):
             self.draw_bottom_toolbar()
             if len(self.points) > 0:
                 message = ("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
-                socket_help.send_message(self.client_socket, self.aes_key, self.iv,message)
+                socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
                 print(self.points)
                 # self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
                 self.last_circle_position = self.points[-1]
@@ -165,6 +202,12 @@ class ClientApp(WhiteboardApp):
             self.clock.tick(60)
 
     def get_credentials(self):
+        """
+        Prompts the user for credentials and handles login/signup.
+
+        Returns:
+            bool: True if credentials are valid, False otherwise.
+        """
         # Get credentials from the user and send them to the server
         root = tk.Tk()
         root.withdraw()  # Hide the main window
@@ -208,6 +251,9 @@ class ClientApp(WhiteboardApp):
 
         # Functions for login and signup
         def login():
+            """
+            Handles user login by sending credentials to the server.
+            """
             username = username_entry.get()
             password = password_entry.get()
             credentials = (username, password)
@@ -216,11 +262,14 @@ class ClientApp(WhiteboardApp):
             message = ("log", credentials)
             socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
             confirmation = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)[0]
-            if confirmation == False:
+            if not confirmation:
                 self.popup_notice("Username or password incorrect")
             self.return_input = confirmation
 
         def signup():
+            """
+            Handles user signup by sending credentials to the server.
+            """
             username = username_entry.get()
             password = password_entry.get()
             if len(password) < 6:
@@ -232,7 +281,7 @@ class ClientApp(WhiteboardApp):
             message = ("sign", credentials)
             socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
             confirmation = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)[0]
-            if confirmation == False:
+            if not confirmation:
                 self.popup_notice("Username already exists or password is too short")
             self.return_input = confirmation
 
@@ -247,6 +296,9 @@ class ClientApp(WhiteboardApp):
         return self.return_input  # False if return input exists, otherwise True
 
     def create_or_join(self):
+        """
+        Prompts the user to create or join a whiteboard.
+        """
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
@@ -276,6 +328,9 @@ class ClientApp(WhiteboardApp):
         whiteboard_id_entry.grid(row=1, column=0, padx=20, pady=10)  # Place in row 1
 
         def join_whiteboard():
+            """
+            Handles joining an existing whiteboard.
+            """
             whiteboard_id = whiteboard_id_entry.get()
             if whiteboard_id:  # Check if any text is entered
                 dialog.destroy()
@@ -283,8 +338,8 @@ class ClientApp(WhiteboardApp):
                 message = ("join", self.ID)
                 socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
                 message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
-                if message[0] == False:
-                    self.popup_notice("whiteboard doesnt exist or is privated")
+                if not message[0]:
+                    self.popup_notice("Whiteboard doesn't exist or is private")
                     return False
                 else:
                     self.ID = message[1]
@@ -299,12 +354,15 @@ class ClientApp(WhiteboardApp):
         join_button.grid(row=1, column=0, sticky="e", padx=20)  # Place to the right (east) in row 1
 
         def create_whiteboard():
+            """
+            Handles creating a new whiteboard.
+            """
             dialog.destroy()
             message = ("create", '')
             socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
             message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
-            if message[0] == False:
-                self.popup_notice("problem when creating whiteboard")
+            if not message[0]:
+                self.popup_notice("Problem when creating whiteboard")
                 return False
             else:
                 print("id got")
@@ -328,7 +386,6 @@ class ClientApp(WhiteboardApp):
         Args:
             message (str): The message to display in the popup.
         """
-
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
