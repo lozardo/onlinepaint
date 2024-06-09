@@ -104,6 +104,7 @@ def handle_client(client_socket, addr):
         while True:
             message = socket_help.receive_encrypted_message(client_socket, aes_info[0], aes_info[1])
             if message:
+                print(connected_clients)
                 message_type = message[0]
 
                 if message_type == "join":
@@ -138,7 +139,21 @@ def handle_client(client_socket, addr):
                     send_whiteboard_state_to_client(client_socket, aes_info, whiteboard_id)
 
                 elif message_type == "save":
+                    print(f'{whiteboard_id} is saved')
                     whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
+
+                elif message_type == "exit":
+                    try:
+                        if client_stuff and whiteboard_id in whiteboards:
+                            whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
+                            print(connected_clients)
+                            with lock:
+                                connected_clients[whiteboard_id].remove(client_stuff)
+                        socket_help.send_message(client_socket, aes_info[0], aes_info[1], ("exit", ''))
+                    except:
+                        pass
+
+
 
     except Exception as e:
         print(e)
