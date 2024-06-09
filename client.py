@@ -67,6 +67,8 @@ class ClientApp(WhiteboardApp):
         server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
+        self.thread_live = True
+        self.board_live = True
         # Get credentials from the user
         self.run()
 
@@ -74,7 +76,7 @@ class ClientApp(WhiteboardApp):
         """
         Continuously receives and processes messages from the server.
         """
-        while True:
+        while self.board_live:
             try:
                 print("rcving")
                 message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
@@ -82,10 +84,14 @@ class ClientApp(WhiteboardApp):
                 print(message)
                 if message[0] == 'drawing':
                     self.draw(message[1][0], message[1][1], message[1][2], message[1][3])
-
                     print(f"Received message from server: {message}")
+                if message[0] == 'exit':
+                    print(f"Received message from server: {message}")
+                    self.thread_live = False
+                    break
             except Exception as e:
                 print(f"Error receiving data from server: {e}")
+        print("thread exit")
 
     def receive_server_public_key(self):
         """
@@ -118,53 +124,31 @@ class ClientApp(WhiteboardApp):
         pygame.display.flip()
         os.remove(temp_file_path)
 
-    def run(self):
-        """
-        Runs the main client application, including user authentication and drawing functionality.
-        """
-        self.receive_server_public_key()
-        print(self.server_public_key)
-        print("a")
-        self.aes_key = get_random_bytes(32)
-        self.iv = get_random_bytes(16)
 
-        cipher = PKCS1_OAEP.new(RSA.import_key(self.server_public_key))
-        encrypted_aes_key = cipher.encrypt(self.aes_key)
-        encrypted_iv = cipher.encrypt(self.iv)
-        aes_info = (encrypted_aes_key, encrypted_iv)
-        message = pickle.dumps(aes_info)
-        self.client_socket.sendall(len(message).to_bytes(4, byteorder="big") + message)
-
-        print(self.aes_key)
-
-        while not self.get_credentials():
-            pass
-        while self.ID == '':
-            self.create_or_join()
-
-        print(self.ID)
-        self.initialize(True, self.ID)
-        self.draw_toolbar()
-        self.draw_bottom_toolbar()
-        print(self.screen)
-        message = ("img", '')
-        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
-        image_data = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv, False)
-        print(image_data)
-        self.initialize_whiteboard_with_image(image_data)
-        recv_thread = threading.Thread(target=self.receive_messages)
-        recv_thread.start()
-
+    def whiteboard_loop(self):
         while True:
+            if not self.thread_live:
+                return "exit"
             events = pygame.event.get()
             pygame_widgets.update(events)
             pygame.display.update()
+
+            self.draw_toolbar()
+            self.draw_bottom_toolbar()
+            if len(self.points) > 0:
+                message = ("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
+                socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+                print(self.points)
+                # self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
+                self.last_circle_position = self.points[-1]
+            if not self.drawing:
+                self.last_circle_position = None
+            pygame.display.flip()
+            self.clock.tick(60)
+
             for event in events:
-                if event.type == pygame.QUIT:
-                    recv_thread.join(1)
-                    pygame.quit()
-                    sys.exit()
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    print(event.button)
                     if event.button == 1:
                         # Check if clicked on a color button
                         for i, color_button in enumerate(self.color_buttons):
@@ -187,19 +171,71 @@ class ClientApp(WhiteboardApp):
                 if self.line_width != int(self.width_slider.getValue()):
                     self.line_width = int(self.width_slider.getValue())
                 # Handle button events
+                self.download_button.listen(event)
                 self.save_button.listen(event)
+                self.exit_button.listen(event)
+
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    return "quit"
+
+
+    def run(self):
+        """
+        Runs the main client application, including user authentication and drawing functionality.
+        """
+        self.receive_server_public_key()
+        print(self.server_public_key)
+        print("a")
+        self.aes_key = get_random_bytes(32)
+        self.iv = get_random_bytes(16)
+
+        cipher = PKCS1_OAEP.new(RSA.import_key(self.server_public_key))
+        encrypted_aes_key = cipher.encrypt(self.aes_key)
+        encrypted_iv = cipher.encrypt(self.iv)
+        aes_info = (encrypted_aes_key, encrypted_iv)
+        message = pickle.dumps(aes_info)
+        self.client_socket.sendall(len(message).to_bytes(4, byteorder="big") + message)
+
+        print(self.aes_key)
+
+        while self.get_credentials() == False:
+            pass
+
+        while self.ID == '':
+            self.create_or_join()
+
+        while True:
+            print(self.ID)
+            self.initialize(True, self.ID)
             self.draw_toolbar()
             self.draw_bottom_toolbar()
-            if len(self.points) > 0:
-                message = ("draw", (self.points, self.draw_color, self.line_width, self.last_circle_position))
-                socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
-                print(self.points)
-                # self.draw(self.points, self.draw_color, self.line_width, self.last_circle_position)
-                self.last_circle_position = self.points[-1]
-            if not self.drawing:
-                self.last_circle_position = None
-            pygame.display.flip()
-            self.clock.tick(60)
+            print(self.screen)
+            message = ("img", '')
+            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+            image_data = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv, False)
+            print(image_data)
+
+            self.initialize_whiteboard_with_image(image_data)
+            self.recv_thread = threading.Thread(target=self.receive_messages)
+            self.recv_thread.start()
+            self.thread_live = True
+            self.board_live = True
+            condition = self.whiteboard_loop()
+
+            if condition == 'exit':
+                pygame.quit()
+                self.ID = ''
+                while self.ID == '':
+                    self.create_or_join()
+
+            elif condition == 'quit':
+                self.board_live = False
+                pygame.quit()
+                break
+
+
+        print("left")
 
     def get_credentials(self):
         """
