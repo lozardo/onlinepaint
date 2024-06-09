@@ -6,6 +6,9 @@ from pygame_widgets.slider import Slider
 from pygame_widgets.button import Button
 import pyperclip
 
+import socket_help
+
+
 class WhiteboardApp:
     def initialize(self, with_head, ID=''):
         """
@@ -72,15 +75,38 @@ class WhiteboardApp:
         # Bottom toolbar
         self.bottom_toolbar_height = 40
 
-        # Calculate space for ID and adjust save button position
-        self.save_button = Button(self.screen, self.width - 120, self.height - self.bottom_toolbar_height + 10,
+        # Calculate space for ID and adjust button positions
+        self.download_button = Button(self.screen, self.width - 360, self.height - self.bottom_toolbar_height + 10,
+                                      100, 20, text='Download', fontSize=15, margin=20, inactiveColour=(255, 255, 255),
+                                      activeColour=(240, 240, 240), onClick=self.save_picture)
+
+        self.save_button = Button(self.screen, self.width - 240, self.height - self.bottom_toolbar_height + 10,
                                   100, 20, text='Save', fontSize=15, margin=20, inactiveColour=(255, 255, 255),
-                                  activeColour=(240, 240, 240), onClick=self.save_picture)
+                                  activeColour=(240, 240, 240), onClick=self.send_save_action)
+
+        self.exit_button = Button(self.screen, self.width - 120, self.height - self.bottom_toolbar_height + 10,
+                                  100, 20, text='Exit', fontSize=15, margin=20, inactiveColour=(255, 255, 255),
+                                  activeColour=(240, 240, 240), onClick=self.exit_whiteboard)
+
         self.ID_button = Button(self.screen, self.width - 785, self.height - self.bottom_toolbar_height + 10,
                                 100, 20, text=f"{self.id}", fontSize=15, margin=20, inactiveColour=(255, 255, 255),
                                 activeColour=(240, 240, 240), onClick=lambda: pyperclip.copy(f"{self.id}"))
 
         pygame.draw.circle(self.screen, (255, 255, 255), (600, 500), 1000)
+
+    def send_save_action(self):
+        """
+        Sends a save action to the server.
+        """
+        message = ("save", '')
+        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+
+    def exit_whiteboard(self):
+        """
+        Exits the current whiteboard and returns to the whiteboard selection screen.
+        """
+        message = ('exit','')
+        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
 
     def change_color(self, args):
         """
@@ -90,7 +116,6 @@ class WhiteboardApp:
         self.line_color_index = index
         if self.draw_color != self.available_colors[self.line_color_index][0]:
             self.draw_color = self.available_colors[self.line_color_index][0]
-            self.send_action("color", self.draw_color)
             print(self.draw_color)
 
     def save_picture(self):
@@ -138,6 +163,8 @@ class WhiteboardApp:
 
         self.ID_button.draw()
         self.save_button.draw()
+        self.exit_button.draw()
+        self.download_button.draw()
 
     def draw(self, points, draw_color, line_width, last_circle_position):
         """
