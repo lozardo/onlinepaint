@@ -109,8 +109,8 @@ def handle_client(client_socket, addr):
 
                 if message_type == "join":
                     whiteboard_id = message[1]
-                    if not whiteboard_exists_in_db(whiteboard_id):
-                        socket_help.send_message(client_socket, aes_info[0], aes_info[1], (False, -1))
+                    if not is_user_allowed_to_join(whiteboard_id, username):
+                        socket_help.send_message(client_socket, aes_info[0], aes_info[1], (False, ""))
                     else:
                         if whiteboard_id not in whiteboards:
                             whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
@@ -124,7 +124,8 @@ def handle_client(client_socket, addr):
                     new_whiteboard_id = generate_unique_whiteboard_id()
                     whiteboards[new_whiteboard_id] = white_lib.WhiteboardApp()
                     whiteboards[new_whiteboard_id].initialize(False)
-                    create_whiteboard(new_whiteboard_id, username)
+                    allowed_users = message[1]  # Allowed users from the client
+                    create_whiteboard(new_whiteboard_id, username, allowed_users)
                     socket_help.send_message(client_socket, aes_info[0], aes_info[1], (True, new_whiteboard_id))
                     with lock:
                         connected_clients[new_whiteboard_id] = [client_stuff]
@@ -152,8 +153,6 @@ def handle_client(client_socket, addr):
                         socket_help.send_message(client_socket, aes_info[0], aes_info[1], ("exit", ''))
                     except:
                         pass
-
-
 
     except Exception as e:
         print(e)
@@ -270,15 +269,35 @@ def authenticate_client(credentials):
     return False
 
 
-def create_whiteboard(whiteboard_id, creator_username):
+def create_whiteboard(whiteboard_id, creator_username, allowed_users):
     """
     Creates a new whiteboard in the database.
     """
     conn = sqlite3.connect('whiteboards.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO whiteboards (ID, creator) VALUES (?, ?)", (whiteboard_id, creator_username))
+    allowed_users_str = ','.join(allowed_users) if allowed_users else None
+    cursor.execute("INSERT INTO whiteboards (ID, creator, allowed_users) VALUES (?, ?, ?)",
+                   (whiteboard_id, creator_username, allowed_users_str))
     conn.commit()
     conn.close()
+
+
+def is_user_allowed_to_join(whiteboard_id, username):
+    """
+    Checks if a user is allowed to join a whiteboard.
+    """
+    conn = sqlite3.connect('whiteboards.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT allowed_users, creator FROM whiteboards WHERE ID=?", (whiteboard_id,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        allowed_users, creator = result
+        if allowed_users is None or username == creator:
+            return True  # Public whiteboard or the user is the creator
+        allowed_users_list = allowed_users.split(',')
+        return username in allowed_users_list
+    return False
 
 
 def whiteboard_exists_in_db(whiteboard_id):
@@ -311,7 +330,8 @@ if __name__ == "__main__":
     cursor_whiteboards = conn_whiteboards.cursor()
     cursor_whiteboards.execute('''CREATE TABLE IF NOT EXISTS whiteboards (
                                     ID TEXT PRIMARY KEY,
-                                    creator TEXT
+                                    creator TEXT,
+                                    allowed_users TEXT
                                 )''')
     conn_whiteboards.commit()
     conn_whiteboards.close()
