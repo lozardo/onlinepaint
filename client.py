@@ -199,11 +199,11 @@ class ClientApp(WhiteboardApp):
 
         print(self.aes_key)
 
-        while self.get_credentials() == False:
+        while not self.get_credentials():
             pass
 
-        while self.ID == '':
-            self.create_or_join()
+        while not self.create_or_join():
+            pass
 
         while True:
             print(self.ID)
@@ -341,7 +341,7 @@ class ClientApp(WhiteboardApp):
         # Create a dialog
         dialog = tk.Toplevel(root)
         dialog.title("Whiteboard Setup")
-        dialog.geometry("600x800")  # Set the window size
+        dialog.geometry("600x400")  # Set the window size
 
         # Increase font sizes for better readability
         default_font = ("Arial", 16)
@@ -355,65 +355,153 @@ class ClientApp(WhiteboardApp):
         dialog.grid_rowconfigure(0, weight=1)
         dialog.grid_rowconfigure(1, weight=2)
 
-        # Label (optional)
+        # Label for Whiteboard ID
         label = tk.Label(dialog, text="Whiteboard ID:", font=label_font)
-        label.grid(row=0, column=0, pady=20)  # Place label in row 0
+        label.grid(row=0, column=0, pady=20)
 
         # Textbox for input (limited to 6 characters)
         whiteboard_id_entry = tk.Entry(dialog, font=("Arial", 20), width=7)
-        whiteboard_id_entry.grid(row=1, column=0, padx=20, pady=10)  # Place in row 1
+        whiteboard_id_entry.grid(row=1, column=0, padx=20, pady=10)
+
+        self.return_input = False
 
         def join_whiteboard():
             """
             Handles joining an existing whiteboard.
             """
             whiteboard_id = whiteboard_id_entry.get()
-            if whiteboard_id:  # Check if any text is entered
+            if whiteboard_id:
                 dialog.destroy()
-                self.ID = whiteboard_id
-                message = ("join", self.ID)
+                message = ("join", whiteboard_id)
                 socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
                 message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
                 if not message[0]:
                     self.popup_notice("Whiteboard doesn't exist or is private")
-                    return False
+                    self.ID = ""
+                    self.return_input = False
                 else:
                     self.ID = message[1]
-                    return True
+                    self.return_input = True
             else:
-                # Handle case where no ID is entered (optional)
                 print("Please enter a whiteboard ID.")
 
-        # Join button to the left of the textbox
         join_button = tk.Button(dialog, text="Join Whiteboard", command=join_whiteboard, font=default_font, padx=20,
                                 pady=10)
-        join_button.grid(row=1, column=0, sticky="e", padx=20)  # Place to the right (east) in row 1
+        join_button.grid(row=1, column=0, sticky="e", padx=20)
 
         def create_whiteboard():
             """
             Handles creating a new whiteboard.
             """
             dialog.destroy()
-            message = ("create", '')
-            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
-            message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
-            if not message[0]:
-                self.popup_notice("Problem when creating whiteboard")
-                return False
-            else:
-                print("id got")
-                self.ID = message[1]
-                return True
+            self.return_input = self.prompt_whiteboard_type()
 
-        # Create Button above the textbox and join button
         create_button = tk.Button(dialog, text="Create New Whiteboard", command=create_whiteboard, font=default_font,
                                   padx=20, pady=10)
-        create_button.grid(row=0, column=0, sticky="s", pady=15)  # Place at the bottom (south) of row 0
-
-        # Window Icon (optional)
-        # dialog.iconbitmap("my_icon.ico")  # Replace with your icon file path
+        create_button.grid(row=0, column=0, sticky="s", pady=15)
 
         root.wait_window(dialog)
+        return self.return_input
+
+    def prompt_whiteboard_type(self):
+        """
+        Prompts the user to select whether the whiteboard is public or private.
+        """
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+
+        # Create a dialog
+        dialog = tk.Toplevel(root)
+        dialog.title("Select Whiteboard Type")
+        dialog.geometry("600x600")  # Set the window size
+
+        # Increase font sizes for better readability
+        default_font = ("Arial", 16)
+
+        # Background color
+        dialog.configure(bg="#f5f5f5")
+
+        # Grid layout with 2 rows and 1 column
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(0, weight=1)
+        dialog.grid_rowconfigure(1, weight=2)
+
+        # Radio buttons for public/private selection
+        selection_frame = tk.Frame(dialog, bg="#f5f5f5")
+        selection_frame.grid(row=0, column=0, padx=20, pady=10)
+
+        public_option = tk.BooleanVar(value=True)  # Default to public (False)
+        private_radio = tk.Checkbutton(selection_frame, text="Public", font=default_font, bg="#f5f5f5",)
+
+        private_radio.pack(padx=10, pady=10)
+
+        # Frame for entering usernames if private is selected
+        private_users_frame = tk.Frame(dialog, bg="#f5f5f5")
+        private_users_frame.grid(row=1, column=0, padx=20, pady=10)
+
+        private_users_label = tk.Label(private_users_frame, text="Enter username:", font=default_font, bg="#f5f5f5")
+        private_users_entry = tk.Entry(private_users_frame, font=("Arial", 20), width=20)
+        allow_user_button = tk.Button(private_users_frame, text="Allow User", font=default_font, padx=10, pady=5)
+        allowed_users_listbox = tk.Listbox(private_users_frame, font=("Arial", 16), width=30, height=5)
+
+        allowed_users = []
+        self.return_input
+
+        def on_private_select():
+            public_option.set(not public_option.get())
+            print(public_option.get())
+            if not public_option.get():
+                private_users_label.pack(side=tk.TOP, pady=10)
+                private_users_entry.pack(side=tk.TOP, pady=10)
+                allow_user_button.pack(side=tk.TOP, pady=10)
+                allowed_users_listbox.pack(side=tk.TOP, pady=10)
+            else:
+                private_users_label.pack_forget()
+                private_users_entry.pack_forget()
+                allow_user_button.pack_forget()
+                allowed_users_listbox.pack_forget()
+
+        private_radio.config(command=on_private_select)
+
+        # Initially call to set the correct visibility based on the default selection
+        on_private_select()  # Default is public
+
+        def add_user():
+            username = private_users_entry.get().strip()
+            if username and username not in allowed_users:
+                allowed_users.append(username)
+                allowed_users_listbox.insert(tk.END, username)
+                private_users_entry.delete(0, tk.END)
+
+        allow_user_button.config(command=add_user)
+
+        def create_whiteboard():
+            """
+            Handles creating a new whiteboard.
+            """
+            dialog.destroy()
+            if not public_option.get():
+                message = ("create", tuple(allowed_users))
+            else:
+                message = ("create", None)
+
+            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+            response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+            if response[0]:
+                self.ID = response[1]
+                self.return_input = True
+            else:
+                print("res0 is false")
+                self.popup_notice("Problem when creating whiteboard")
+                self.ID = ""
+                self.return_input = False
+
+        create_button = tk.Button(dialog, text="Create Whiteboard", command=create_whiteboard, font=default_font,
+                                  padx=20, pady=10)
+        create_button.grid(row=2, column=0, sticky="s", pady=15)
+
+        root.wait_window(dialog)
+        return self.return_input
 
     def popup_notice(self, message):
         """
