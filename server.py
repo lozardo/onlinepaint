@@ -116,9 +116,12 @@ def handle_client(client_socket, addr):
                             whiteboards[whiteboard_id] = white_lib.WhiteboardApp()
                             whiteboards[whiteboard_id].initialize(False)
                             whiteboards[whiteboard_id].set_image(f"whiteboard_{whiteboard_id}.bmp")
-                        with lock:
-                            connected_clients.setdefault(whiteboard_id, []).append(client_stuff)
+                        whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
                         socket_help.send_message(client_socket, aes_info[0], aes_info[1], (True, whiteboard_id))
+
+                elif message_type == "ready":
+                    with lock:  # Fixes problem for when user gets updates before loading image
+                        connected_clients.setdefault(whiteboard_id, []).append(client_stuff)
 
                 elif message_type == "create":
                     new_whiteboard_id = generate_unique_whiteboard_id()
@@ -181,7 +184,7 @@ def start_server():
     Starts the server and listens for incoming client connections.
     """
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", 5555))
+    server.bind(("192.168.0.243", 5555))
     server.listen(5)
     print("Server listening on port 5555")
 
