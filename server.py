@@ -121,6 +121,7 @@ def handle_client(client_socket, addr):
 
                 elif message_type == "ready":
                     with lock:  # Fixes problem for when user gets updates before loading image
+                        update_user_whiteboard_ids(username, whiteboard_id)
                         connected_clients.setdefault(whiteboard_id, []).append(client_stuff)
 
                 elif message_type == "create":
@@ -146,6 +147,11 @@ def handle_client(client_socket, addr):
                     print(f'{whiteboard_id} is saved')
                     whiteboards[whiteboard_id].save_picture_path(f"whiteboard_{whiteboard_id}.bmp")
 
+                elif message_type == "last":
+                    whiteboard_arr = get_user_whiteboard_ids(username)
+                    sent_message = ("whiteboards", whiteboard_arr)
+                    socket_help.send_message(client_socket, aes_info[0], aes_info[1], sent_message)
+
                 elif message_type == "exit":
                     try:
                         if client_stuff and whiteboard_id in whiteboards:
@@ -153,7 +159,8 @@ def handle_client(client_socket, addr):
                             print(connected_clients)
                             with lock:
                                 connected_clients[whiteboard_id].remove(client_stuff)
-                        socket_help.send_message(client_socket, aes_info[0], aes_info[1], ("exit", ''))
+                        sent_message = ("exit", '')
+                        socket_help.send_message(client_socket, aes_info[0], aes_info[1], sent_message)
                     except:
                         pass
 
@@ -226,8 +233,8 @@ def get_user_whiteboard_ids(username):
     user_record = cursor.fetchone()
     conn.close()
     if user_record:
-        return set(user_record[0].split(',')) if user_record[0] else set()
-    return set()
+        return user_record[0].split(',') if user_record[0] else []
+    return []
 
 
 def register_client(credentials):
