@@ -126,7 +126,6 @@ class ClientApp(WhiteboardApp):
         message = ("ready", '')  # Fixes problem for when user gets updates before loading image
         socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
 
-
     def whiteboard_loop(self):
         while True:
             if not self.thread_live:
@@ -181,7 +180,6 @@ class ClientApp(WhiteboardApp):
                     pygame.quit()
                     return "quit"
 
-
     def run(self):
         """
         Runs the main client application, including user authentication and drawing functionality.
@@ -235,7 +233,6 @@ class ClientApp(WhiteboardApp):
                 self.board_live = False
                 pygame.quit()
                 break
-
 
         print("left")
 
@@ -340,6 +337,19 @@ class ClientApp(WhiteboardApp):
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
+        # Send a request to the server to get the past whiteboards
+        message = ("last", '')
+        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+        response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+        while not response:
+            print("res")
+            response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+            print(response)
+
+        past_whiteboards = []
+        if response[0] == "whiteboards":
+            past_whiteboards = response[1]
+
         # Create a dialog
         dialog = tk.Toplevel(root)
         dialog.title("Whiteboard Setup")
@@ -402,6 +412,28 @@ class ClientApp(WhiteboardApp):
                                   padx=20, pady=10)
         create_button.grid(row=0, column=0, sticky="s", pady=15)
 
+        # Display past whiteboards
+        for i, whiteboard in enumerate(past_whiteboards):
+            def join_past_whiteboard(wb_id=whiteboard):
+                """
+                Joins a past whiteboard.
+                """
+                dialog.destroy()
+                message = ("join", wb_id)
+                socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+                message = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+                if not message[0]:
+                    self.popup_notice("Whiteboard doesn't exist or is private")
+                    self.ID = ""
+                    self.return_input = False
+                else:
+                    self.ID = message[1]
+                    self.return_input = True
+
+            past_button = tk.Button(dialog, text=f"Join Past Whiteboard {whiteboard}", command=join_past_whiteboard,
+                                    font=default_font, padx=20, pady=10)
+            past_button.grid(row=2 + i, column=0, sticky="w", padx=20, pady=5)
+
         root.wait_window(dialog)
         return self.return_input
 
@@ -433,7 +465,7 @@ class ClientApp(WhiteboardApp):
         selection_frame.grid(row=0, column=0, padx=20, pady=10)
 
         public_option = tk.BooleanVar(value=True)  # Default to public (False)
-        private_radio = tk.Checkbutton(selection_frame, text="Public", font=default_font, bg="#f5f5f5",)
+        private_radio = tk.Checkbutton(selection_frame, text="Public", font=default_font, bg="#f5f5f5", )
 
         private_radio.pack(padx=10, pady=10)
 
