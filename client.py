@@ -64,7 +64,7 @@ class ClientApp(WhiteboardApp):
         self.aes_key = ''
         self.iv = ''
         # Connect to the server
-        server_address = ("127.0.0.1", 5555)
+        server_address = ("192.168.0.243", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
         self.thread_live = True
@@ -123,6 +123,8 @@ class ClientApp(WhiteboardApp):
         pygame.time.wait(1000)  # Wait for 1 second to ensure the file is closed
         pygame.display.flip()
         os.remove(temp_file_path)
+        message = ("ready", '')  # Fixes problem for when user gets updates before loading image
+        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
 
 
     def whiteboard_loop(self):
