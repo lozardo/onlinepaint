@@ -191,7 +191,7 @@ def start_server():
     Starts the server and listens for incoming client connections.
     """
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", 5555))
+    server.bind(("192.168.0.224", 5556))
     server.listen(5)
     print("Server listening on port 5555")
 
