@@ -37,7 +37,7 @@ def receive_encrypted_message(sock, aes_key, aes_iv, pickled=True):
     if message:
         if pickled:
             message = pickle.loads(message)
-        print(message)
+        print(f"got: {message}")
         return message
     return None
 
