@@ -26,6 +26,7 @@ class WhiteboardApp:
             self.screen = pygame.Surface((self.width, self.height))
         self.clock = pygame.time.Clock()
         self.setup()
+        self.exiting = False
 
     def setup(self):
         """
@@ -105,8 +106,7 @@ class WhiteboardApp:
         """
         Exits the current whiteboard and returns to the whiteboard selection screen.
         """
-        message = ('exit','')
-        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+        self.exiting = True
 
     def change_color(self, args):
         """
