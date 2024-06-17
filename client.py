@@ -12,6 +12,7 @@ import pygame
 import sys
 import threading
 from Crypto.Cipher import PKCS1_OAEP
+import re
 
 import socket_help
 
@@ -64,7 +65,7 @@ class ClientApp(WhiteboardApp):
         self.aes_key = ''
         self.iv = ''
         # Connect to the server
-        server_address = ("192.168.0.243", 5555)
+        server_address = ("127.0.0.1", 5555)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_address)
         self.thread_live = True
@@ -175,6 +176,11 @@ class ClientApp(WhiteboardApp):
                 self.download_button.listen(event)
                 self.save_button.listen(event)
                 self.exit_button.listen(event)
+                if self.exiting:
+                    print("exiting wb")
+                    self.exiting = False
+                    message = ('exit', '')
+                    socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
 
                 if event.type == pygame.QUIT:
                     pygame.quit()
@@ -202,7 +208,15 @@ class ClientApp(WhiteboardApp):
         while not self.get_credentials():
             pass
 
-        while not self.create_or_join():
+        # asks server for past whiteboards
+        response = ['']
+        while response[0] != "whiteboards":
+            message = ("last", '')
+            socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+            response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+            print(response)
+
+        while not self.create_or_join(response[1]):
             pass
 
         while True:
@@ -227,7 +241,15 @@ class ClientApp(WhiteboardApp):
                 pygame.quit()
                 self.ID = ''
                 while self.ID == '':
-                    self.create_or_join()
+                    print('id')
+                    # asks server for past whiteboards
+                    message = ("last", '')
+                    socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
+                    response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+                    while not response:
+                        response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
+                    print(response)
+                    self.create_or_join(response[1])
 
             elif condition == 'quit':
                 self.board_live = False
@@ -284,6 +306,10 @@ class ClientApp(WhiteboardApp):
                                       font=default_font)
         password_req_label.grid(row=2, column=1, padx=0, pady=5, sticky="w")
 
+        # Validation function for username
+        def is_valid_username(username):
+            return re.match("^[A-Za-z0-9]+$", username) is not None
+
         # Functions for login and signup
         def login():
             """
@@ -291,6 +317,9 @@ class ClientApp(WhiteboardApp):
             """
             username = username_entry.get()
             password = password_entry.get()
+            if not is_valid_username(username):
+                self.popup_notice("Username can only contain English letters and numbers.")
+                return
             credentials = (username, password)
             dialog.destroy()
             self.username = credentials[0]
@@ -307,6 +336,9 @@ class ClientApp(WhiteboardApp):
             """
             username = username_entry.get()
             password = password_entry.get()
+            if not is_valid_username(username):
+                self.popup_notice("Username can only contain English letters and numbers.")
+                return
             if len(password) < 6:
                 password_req_label.config(text="Password must be at least 6 characters", fg="red")
                 return
@@ -330,30 +362,17 @@ class ClientApp(WhiteboardApp):
         root.wait_window(dialog)
         return self.return_input  # False if return input exists, otherwise True
 
-    def create_or_join(self):
+    def create_or_join(self, past_whiteboards):
         """
         Prompts the user to create or join a whiteboard.
         """
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
-        # Send a request to the server to get the past whiteboards
-        message = ("last", '')
-        socket_help.send_message(self.client_socket, self.aes_key, self.iv, message)
-        response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
-        while not response:
-            print("res")
-            response = socket_help.receive_encrypted_message(self.client_socket, self.aes_key, self.iv)
-            print(response)
-
-        past_whiteboards = []
-        if response[0] == "whiteboards":
-            past_whiteboards = response[1]
-
         # Create a dialog
         dialog = tk.Toplevel(root)
         dialog.title("Whiteboard Setup")
-        dialog.geometry("600x400")  # Set the window size
+        dialog.geometry("600x800")  # Set the window size to be thinner and taller
 
         # Increase font sizes for better readability
         default_font = ("Arial", 16)
@@ -362,10 +381,11 @@ class ClientApp(WhiteboardApp):
         # Background color
         dialog.configure(bg="#f5f5f5")
 
-        # Grid layout with 2 rows and 1 column
+        # Grid layout for the dialog
         dialog.grid_columnconfigure(0, weight=1)
         dialog.grid_rowconfigure(0, weight=1)
-        dialog.grid_rowconfigure(1, weight=2)
+        dialog.grid_rowconfigure(1, weight=1)
+        dialog.grid_rowconfigure(2, weight=8)  # More weight to the scrollable area
 
         # Label for Whiteboard ID
         label = tk.Label(dialog, text="Whiteboard ID:", font=label_font)
@@ -412,7 +432,34 @@ class ClientApp(WhiteboardApp):
                                   padx=20, pady=10)
         create_button.grid(row=0, column=0, sticky="s", pady=15)
 
-        # Display past whiteboards
+        # Frame for the scrollable area
+        scroll_frame = tk.Frame(dialog)
+        scroll_frame.grid(row=2, column=0, padx=30, pady=30, sticky="nsew")
+
+        # Create a canvas and scrollbar
+        canvas = tk.Canvas(scroll_frame, bg="#f5f5f5")
+        scrollbar = tk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Pack the canvas and scrollbar into the frame
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Configure column weights for the scrollable frame
+        for i in range(3):
+            scrollable_frame.grid_columnconfigure(i, weight=1)
+
+        # Display past whiteboards in a grid within the scrollable frame
         for i, whiteboard in enumerate(past_whiteboards):
             def join_past_whiteboard(wb_id=whiteboard):
                 """
@@ -430,9 +477,9 @@ class ClientApp(WhiteboardApp):
                     self.ID = message[1]
                     self.return_input = True
 
-            past_button = tk.Button(dialog, text=f"Join Past Whiteboard {whiteboard}", command=join_past_whiteboard,
-                                    font=default_font, padx=20, pady=10)
-            past_button.grid(row=2 + i, column=0, sticky="w", padx=20, pady=5)
+            past_button = tk.Button(scrollable_frame, text=f"{whiteboard}", command=join_past_whiteboard,
+                                    font=default_font, padx=27, pady=10)
+            past_button.grid(row=i // 3, column=i % 3, padx=10, pady=10, sticky="ew")
 
         root.wait_window(dialog)
         return self.return_input
@@ -552,7 +599,7 @@ class ClientApp(WhiteboardApp):
         popup.title("Notification")
 
         # Set window size and background color
-        popup.geometry("300x150")
+        popup.geometry("300x200")
         popup.configure(bg="#f5f5f5")
 
         # Frame for message and buttons (optional for better organization)
